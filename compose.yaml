@@ -1,0 +1,20 @@
+services:
+  tailscaled-yt-dlp:
+    image: zuptalo/tailscaled-yt-dlp:latest
+    container_name: tailscaled-yt-dlp
+    hostname: tailscaled-yt-dlp
+    restart: always
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun
+    volumes:
+      - ./downloads:/downloads
+      - ./cookies.txt:/downloads/cookies.txt
+      - ./tailscale-state:/var/lib/tailscale
+    environment:
+      - HEADSCALE_URL=https://hs.example.com
+      - HEADSCALE_AUTHKEY=your-pre-authorised-key-goes-here
+      - EXIT_NODE=your-exit-node-tailscale-ip-goes-here
+    tty: true
+    stdin_open: true

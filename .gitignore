@@ -1,0 +1,7 @@
+.idea
+*.iml
+cookies.txt
+*.part
+*.mp4
+tailscale-state
+downloads
