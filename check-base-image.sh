@@ -6,7 +6,7 @@ DIGEST_FILE="base-image-digest.txt"
 
 # Get current digest from registry
 echo "🔍 Checking current digest for $BASE_IMAGE..."
-CURRENT_DIGEST=$(docker manifest inspect "$BASE_IMAGE" | jq -r '.config.digest')
+CURRENT_DIGEST=$(docker manifest inspect "$BASE_IMAGE" | jq -r '.digest // .config.digest // .manifests[0].digest')
 
 echo "Current digest: $CURRENT_DIGEST"
 

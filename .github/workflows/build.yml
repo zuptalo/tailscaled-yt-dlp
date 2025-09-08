@@ -21,9 +21,13 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       build_needed: ${{ steps.check.outputs.build_needed }}
+    permissions:
+      contents: write
     steps:
     - name: Checkout repository
       uses: actions/checkout@v4
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
       
     - name: Check base image changes
       id: check
@@ -43,6 +47,8 @@ jobs:
         git add base-image-digest.txt
         git diff --staged --quiet || git commit -m "Update base image digest [skip ci]"
         git push
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   build-and-push:
     runs-on: ubuntu-latest
