@@ -1,73 +1,35 @@
-# Tailscaled yt-dlp
+# Media Downloader
 
-A containerized YouTube/video downloader (yt-dlp) that routes all traffic through a Tailscale VPN connection. Perfect for downloading geo-restricted content or maintaining privacy by routing through a specific exit node.
+Containerized yt-dlp media downloader that routes all traffic through a Tailscale VPN exit node. Features a web UI with authentication, first-run setup wizard, real-time download progress, video streaming/playback, and VPN health monitoring.
+
+Designed for use with Headscale (self-hosted Tailscale control plane). Published as multi-arch Docker images (amd64/arm64).
 
 ## Features
 
-- **yt-dlp with Tailscale VPN**: All downloads route through your Tailscale network
-- **Persistent container**: Long-running container you can connect to and run commands
-- **Automatic cookie/user-agent**: Cookies and Chrome user-agent automatically applied
-- **Persistent state**: Tailscale identity persists across container restarts
-- **Multi-arch support**: Works on AMD64 and ARM64 (Apple Silicon)
-
-## Prerequisites
-
-### Required Files
-1. **`cookies.txt`** - Browser cookies for authentication with video platforms
-   - Export from your browser using extensions like "Get cookies.txt LOCALLY"
-   - Must be in Netscape cookie file format
-   - Place in the project root directory
-
-2. **Tailscale/Headscale setup**:
-   - A running Headscale server (or Tailscale account)
-   - An authentication key for your network
-   - An exit node configured in your network
-
-### Required Environment Variables
-Set these in your `docker-compose.yaml`:
-
-- `HEADSCALE_URL` - Your Headscale server URL (e.g., `https://hs.example.com`)
-- `HEADSCALE_AUTHKEY` - Authentication key for your Headscale network
-- `EXIT_NODE` - IP address of the exit node to route traffic through (e.g., `100.64.0.12`)
+- **Web UI**: Mobile-first PWA with dark theme, real-time progress via SSE
+- **VPN Routing**: All downloads route through Tailscale exit node via SOCKS5 proxy
+- **Setup Wizard**: Configure credentials, Headscale connection, and exit node on first run
+- **Video Playback**: Stream downloaded videos directly in the browser
+- **Format Selection**: Choose quality/format before downloading
+- **Multi-arch**: Works on AMD64 and ARM64 (Apple Silicon)
 
 ## Quick Start
 
-1. **Clone and configure**:
-   ```bash
-   git clone <this-repo>
-   cd tailscaled-yt-dlp
-   
-   # Add your cookies.txt file
-   cp /path/to/your/cookies.txt ./cookies.txt
-   
-   # Update docker-compose.yaml with your Headscale details
-   ```
+```bash
+# Using Docker Hub
+docker pull zuptalo/tailscaled-yt-dlp:latest
 
-2. **Start the container**:
-   ```bash
-   docker-compose up -d
-   ```
+# Or using GHCR
+docker pull ghcr.io/zuptalo/tailscaled-yt-dlp:latest
 
-3. **Connect to the container**:
-   ```bash
-   docker exec -it tailscaled-yt-dlp bash
-   ```
+# Run with compose
+docker compose up -d
 
-4. **Download videos**:
-   ```bash
-   # Simple download
-   y "https://youtube.com/watch?v=..."
-   
-   # With options
-   y "https://youtube.com/watch?v=..." --format best --output "%(title)s.%(ext)s"
-   
-   # Download playlist
-   y "https://youtube.com/playlist?list=..." --format best
-   ```
+# Open web UI — first run shows setup wizard
+open http://localhost:8080
+```
 
-## Configuration
-
-### docker-compose.yaml
+## Docker Compose
 
 ```yaml
 services:
@@ -76,99 +38,97 @@ services:
     container_name: tailscaled-yt-dlp
     hostname: tailscaled-yt-dlp
     restart: always
+    ports:
+      - "8080:8080"
     cap_add:
       - NET_ADMIN
     devices:
       - /dev/net/tun
     volumes:
       - ./downloads:/downloads
-      - ./cookies.txt:/downloads/cookies.txt
+      - ./data:/data
       - ./tailscale-state:/var/lib/tailscale
-    environment:
-      - HEADSCALE_URL=https://hs.example.com
-      - HEADSCALE_AUTHKEY=your-auth-key-here
-      - EXIT_NODE=100.64.0.12
-    tty: true
-    stdin_open: true
 ```
 
-### Getting Cookies
+## Setup
 
-1. **Browser Extension Method**:
-   - Install "Get cookies.txt LOCALLY" extension
-   - Visit the video platform you want to download from
-   - Click the extension and export cookies
-   - Save as `cookies.txt` in the project directory
+On first run, the web UI displays a 3-step setup wizard:
 
-2. **Manual Browser Method**:
-   - Open Developer Tools (F12)
-   - Go to Application/Storage tab
-   - Copy cookies manually to Netscape format
+1. **Credentials** — Choose username and password for the web UI
+2. **Headscale** — Enter your Headscale server URL and pre-authorized auth key
+3. **Exit node** — Select from discovered exit nodes on your network
 
-## Usage
+Configuration persists across container restarts.
 
-### Basic Commands
+## Directory Structure
+
+```
+./downloads/     # Downloaded media files
+./data/          # Config, database, cookies
+./tailscale-state/  # Tailscale identity (persists across restarts)
+```
+
+## CLI Usage
 
 ```bash
-# Connect to running container
+# Shell into running container
 docker exec -it tailscaled-yt-dlp bash
 
-# Download single video
-y "https://youtube.com/watch?v=dQw4w9WgXcQ"
+# Download a video (after setup wizard is complete)
+y "https://youtube.com/watch?v=..."
 
-# Download with specific format
-y "https://youtube.com/watch?v=dQw4w9WgXcQ" --format "best[height<=720]"
-
-# Download audio only
-y "https://youtube.com/watch?v=dQw4w9WgXcQ" --extract-audio --audio-format mp3
-
-# Download playlist
-y "https://youtube.com/playlist?list=PLrAXtmRdnEQy6nuLMt3JXXqiTFuqIgMmp"
-
-# List available formats
-y "https://youtube.com/watch?v=dQw4w9WgXcQ" --list-formats
+# The 'y' wrapper automatically applies cookies, user-agent, and VPN proxy
 ```
 
-### Directory Structure
+## Configuration
 
-```
-tailscaled-yt-dlp/
-├── downloads/           # Downloaded files appear here
-├── tailscale-state/     # Persistent Tailscale state
-├── cookies.txt          # Your browser cookies
-├── docker-compose.yaml  # Container configuration
-└── README.md           # This file
-```
+### Optional Environment Variables
 
-## Troubleshooting
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `DATA_DIR` | `/data` | Application data directory |
+| `DOWNLOADS_DIR` | `/downloads` | Download output directory |
+| `COOKIES_FILE` | `/data/cookies.txt` | Path to cookies file |
+| `MAX_CONCURRENT_DOWNLOADS` | `2` | Max parallel downloads |
+| `USER_AGENT` | Chrome 140 | Browser user-agent string |
 
-### Container won't start
-- Ensure `/dev/net/tun` exists on your host
-- Check that your user can access TUN/TAP devices
-- Verify `NET_ADMIN` capability is available
+### Cookies
 
-### Tailscale connection fails
-- Verify `HEADSCALE_URL` is correct and accessible
-- Check that `HEADSCALE_AUTHKEY` is valid and not expired
-- Ensure the `EXIT_NODE` IP is correct and online
+For sites requiring authentication, place a `cookies.txt` file (Netscape format) at `/data/cookies.txt`:
 
-### Downloads fail
-- Check that `cookies.txt` is present and valid
-- Try updating your cookies (they expire)
-- Verify the video URL is accessible from your exit node location
-
-### Permission issues
 ```bash
-# Fix downloads directory permissions
-sudo chown -R $USER:$USER downloads/
+# Copy cookies into the data volume
+cp cookies.txt ./data/cookies.txt
 ```
 
-## Security Notes
+Export cookies from your browser using extensions like "Get cookies.txt LOCALLY".
 
-- Cookies contain authentication tokens - keep `cookies.txt` secure
-- Auth keys in environment variables are visible in container inspect
-- Consider using Docker secrets for production deployments
-- The container runs with `NET_ADMIN` capabilities for VPN functionality
+## Architecture
+
+The container combines yt-dlp + Tailscale + FastAPI in a single Alpine-based image:
+
+1. `tailscaled` runs with userspace networking and SOCKS5 proxy on `localhost:1055`
+2. All yt-dlp traffic routes through the SOCKS5 proxy to the exit node
+3. FastAPI serves the web UI on port 8080
+4. SQLite database tracks download history
+
+### API Endpoints
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| GET | `/` | No | Serve web UI |
+| GET | `/api/setup/status` | No | Check if setup is complete |
+| POST | `/api/setup/connect` | No | Connect to Headscale |
+| POST | `/api/setup/complete` | No | Save config, get auth token |
+| POST | `/api/auth/login` | No | Authenticate |
+| GET | `/api/formats?url=` | Yes | Extract available formats |
+| POST | `/api/downloads` | Yes | Start download |
+| GET | `/api/downloads` | Yes | List downloads |
+| DELETE | `/api/downloads/{id}` | Yes | Delete download |
+| GET | `/api/downloads/{id}/stream` | Yes | Stream video |
+| GET | `/api/events?token=` | Yes | SSE event stream |
+| GET | `/api/vpn/status` | Yes | VPN status |
+| GET | `/api/health` | No | Health check |
 
 ## Building Locally
 
@@ -176,20 +136,48 @@ sudo chown -R $USER:$USER downloads/
 # Build the image
 docker build -t tailscaled-yt-dlp .
 
-# Update docker-compose.yaml to use local image
-# Change: image: zuptalo/tailscaled-yt-dlp:latest
-# To: build: .
+# Run with compose
+docker compose up -d
 ```
+
+### Local Development
+
+```bash
+# Install dependencies and start dev server
+make dev
+```
+
+Requires Python 3.11+ and ffmpeg.
+
+## Troubleshooting
+
+### Container won't start
+- Ensure `/dev/net/tun` exists on your host
+- Verify `NET_ADMIN` capability is available
+
+### Tailscale connection fails
+- Verify Headscale URL is correct and accessible
+- Check that auth key is valid and not expired/already used
+- Generate a new pre-authorized key if needed
+
+### Downloads fail
+- Check that cookies.txt is present and valid (cookies expire)
+- Verify the video URL is accessible from your exit node location
+- Check container logs: `docker compose logs -f`
+
+### VPN not routing traffic
+- The external IP shown in the header should match your exit node's IP
+- If showing your real IP, check that the exit node is online and selected
+
+## Security Notes
+
+- Cookies contain authentication tokens — keep them secure
+- Config file is stored with mode 0600
+- Auth tokens are held in memory and invalidated on container restart
+- The container requires `NET_ADMIN` capability for VPN functionality
 
 ## License
 
 This project combines:
-- [yt-dlp](https://github.com/yt-dlp/yt-dlp) - Public domain
-- [Tailscale](https://tailscale.com/) - BSD-3-Clause license
-
-## Support
-
-For issues related to:
-- **yt-dlp functionality**: Check [yt-dlp documentation](https://github.com/yt-dlp/yt-dlp)
-- **Tailscale/Headscale**: Check [Tailscale docs](https://tailscale.com/kb/) or [Headscale docs](https://headscale.net/)
-- **This container**: Open an issue in this repository
+- [yt-dlp](https://github.com/yt-dlp/yt-dlp) — Public domain
+- [Tailscale](https://tailscale.com/) — BSD-3-Clause license

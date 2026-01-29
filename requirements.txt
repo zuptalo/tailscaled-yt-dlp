@@ -1,0 +1,5 @@
+yt-dlp[default]
+fastapi
+uvicorn[standard]
+aiosqlite
+imageio-ffmpeg

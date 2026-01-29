@@ -1,0 +1,3195 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#0f0f0f">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>Media Downloader</title>
+<link rel="manifest" href="/manifest.json">
+<link rel="icon" type="image/svg+xml" href="/static/icon.svg">
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html {
+  touch-action: manipulation;
+  -webkit-text-size-adjust: 100%;
+}
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  background: #0f0f0f; color: #e5e5e5; min-height: 100vh;
+  min-height: 100dvh;
+  display: flex; flex-direction: column; align-items: center;
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  overflow-x: hidden;
+}
+.container { width: 100%; max-width: 640px; padding: 16px; }
+.screen { display: none; }
+.screen.active { display: block; }
+
+/* Portrait lock overlay */
+@media (orientation: landscape) and (max-height: 500px) {
+  body:not(.video-playing) .container { display: none !important; }
+  body:not(.video-playing) .modal-overlay { display: none !important; }
+  body:not(.video-playing)::after {
+    content: 'Please rotate to portrait';
+    display: flex; align-items: center; justify-content: center;
+    position: fixed; inset: 0; font-size: 18px; color: #737373;
+    background: #0f0f0f; z-index: 9999;
+  }
+}
+
+/* Header */
+.header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 12px 0; margin-bottom: 16px; border-bottom: 1px solid #2a2a2a;
+}
+.header h1 { font-size: 18px; font-weight: 600; }
+.header-right { display: flex; align-items: center; gap: 10px; }
+.vpn-badge {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 12px; color: #a3a3a3; padding: 4px 10px;
+  border-radius: 16px; background: #1a1a1a; border: 1px solid #2a2a2a;
+}
+.vpn-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: #eab308; flex-shrink: 0;
+}
+.vpn-dot.online { background: #22c55e; }
+.vpn-dot.offline { background: #eab308; }
+
+/* Menu button & dropdown */
+.menu-wrapper { position: relative; }
+.menu-btn {
+  background: none; border: 1px solid #2a2a2a; color: #a3a3a3;
+  width: 44px; height: 44px; border-radius: 8px; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 20px; transition: all 0.2s; line-height: 1;
+}
+.menu-btn:hover { background: #1a1a1a; color: #e5e5e5; }
+.menu-dropdown {
+  display: none; position: absolute; right: 0; top: 48px;
+  background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 10px;
+  min-width: 180px; z-index: 50; overflow: hidden;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+}
+.menu-dropdown.open { display: block; }
+.menu-item {
+  display: block; width: 100%; padding: 12px 16px; border: none;
+  background: none; color: #e5e5e5; font-size: 14px; text-align: left;
+  cursor: pointer; transition: background 0.15s;
+}
+.menu-item:hover { background: #2a2a2a; }
+.menu-item:active { background: #333; }
+.menu-divider { height: 1px; background: #2a2a2a; }
+.menu-item.danger { color: #ef4444; }
+
+/* Shared form styles */
+.card {
+  background: #1a1a1a; border: 1px solid #2a2a2a;
+  border-radius: 12px; padding: 24px;
+}
+.card-title { font-size: 18px; font-weight: 600; margin-bottom: 4px; }
+.card-subtitle { font-size: 13px; color: #737373; margin-bottom: 20px; }
+.form-group { margin-bottom: 16px; }
+.form-label {
+  display: block; font-size: 13px; font-weight: 500;
+  margin-bottom: 6px; color: #a3a3a3;
+}
+.form-input, .form-select {
+  width: 100%; padding: 10px 14px; border-radius: 8px;
+  border: 1px solid #2a2a2a; background: #0f0f0f; color: #e5e5e5;
+  font-size: 16px; outline: none; transition: border-color 0.2s;
+  -webkit-appearance: none;
+}
+.form-input:focus, .form-select:focus { border-color: #3b82f6; }
+.form-input::placeholder { color: #525252; }
+.form-error {
+  font-size: 12px; color: #ef4444; margin-top: 6px; display: none;
+}
+.form-error.visible { display: block; }
+.alert {
+  padding: 10px 14px; border-radius: 8px; font-size: 13px;
+  margin-bottom: 16px; display: none;
+}
+.alert.visible { display: block; }
+.alert-error { background: #450a0a; color: #fca5a5; border: 1px solid #7f1d1d; }
+.alert-success { background: #052e16; color: #86efac; border: 1px solid #166534; }
+
+/* Buttons */
+.btn {
+  padding: 10px 18px; border-radius: 8px; border: none;
+  font-size: 14px; font-weight: 500; cursor: pointer; transition: all 0.2s;
+  white-space: nowrap; min-height: 44px;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.btn-primary { background: #3b82f6; color: #fff; }
+.btn-primary:hover:not(:disabled) { background: #2563eb; }
+.btn-danger { background: #dc2626; color: #fff; }
+.btn-danger:hover:not(:disabled) { background: #b91c1c; }
+.btn-sm { padding: 6px 12px; font-size: 12px; min-height: 36px; }
+.btn-ghost {
+  background: transparent; color: #a3a3a3; border: 1px solid #2a2a2a;
+}
+.btn-ghost:hover:not(:disabled) { background: #1a1a1a; color: #e5e5e5; }
+.btn-block { width: 100%; }
+.btn-row { display: flex; gap: 8px; margin-top: 20px; }
+
+/* Wizard steps */
+.steps { display: flex; gap: 8px; margin-bottom: 24px; }
+.step-dot {
+  width: 32px; height: 4px; border-radius: 2px; background: #2a2a2a;
+  transition: background 0.3s;
+}
+.step-dot.active { background: #3b82f6; }
+.step-dot.done { background: #22c55e; }
+.wizard-step { display: none; }
+.wizard-step.active { display: block; }
+
+/* Exit node list */
+.node-list {
+  display: flex; flex-direction: column; gap: 6px;
+  max-height: 240px; overflow-y: auto; margin-bottom: 16px;
+  -webkit-overflow-scrolling: touch;
+}
+.node-option {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 12px; border-radius: 6px; cursor: pointer;
+  border: 1px solid #2a2a2a; transition: border-color 0.2s;
+  min-height: 44px;
+}
+.node-option:hover { border-color: #3b82f6; }
+.node-option.selected { border-color: #3b82f6; background: #172554; }
+.node-option input[type="radio"] { accent-color: #3b82f6; flex-shrink: 0; }
+.node-name { font-size: 14px; font-weight: 500; }
+.node-ip { font-size: 12px; color: #737373; }
+.node-status {
+  margin-left: auto; font-size: 11px; padding: 2px 8px; border-radius: 10px;
+}
+.node-status.online { background: #052e16; color: #22c55e; }
+.node-status.offline { background: #450a0a; color: #ef4444; }
+.node-empty { text-align: center; color: #525252; padding: 24px; font-size: 13px; }
+
+/* Input area */
+.input-area { display: flex; gap: 8px; margin-bottom: 16px; }
+.input-area input {
+  flex: 1; padding: 10px 14px; border-radius: 8px;
+  border: 1px solid #2a2a2a; background: #1a1a1a; color: #e5e5e5;
+  font-size: 16px; outline: none; transition: border-color 0.2s;
+  min-height: 44px;
+}
+.input-area input:focus { border-color: #3b82f6; }
+.input-area input::placeholder { color: #525252; }
+
+/* Format panel */
+.format-panel {
+  display: none; background: #1a1a1a; border: 1px solid #2a2a2a;
+  border-radius: 12px; padding: 16px; margin-bottom: 16px;
+}
+.format-panel.visible { display: block; }
+.format-header { display: flex; gap: 12px; margin-bottom: 14px; }
+.format-thumb {
+  width: 120px; height: 68px; border-radius: 8px; object-fit: cover;
+  background: #2a2a2a; flex-shrink: 0;
+}
+.format-thumb-placeholder {
+  width: 120px; height: 68px; border-radius: 8px; flex-shrink: 0;
+  background: #2a2a2a; display: flex; align-items: center; justify-content: center;
+  color: #525252; font-size: 24px;
+}
+.format-title {
+  font-size: 14px; font-weight: 500; line-height: 1.4;
+  overflow: hidden; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical;
+}
+.format-list {
+  display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px;
+  max-height: 240px; overflow-y: auto; -webkit-overflow-scrolling: touch;
+}
+.format-option {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 12px; border-radius: 6px; cursor: pointer;
+  border: 1px solid #2a2a2a; transition: border-color 0.2s; min-height: 44px;
+}
+.format-option:hover { border-color: #3b82f6; }
+.format-option.selected { border-color: #3b82f6; background: #172554; }
+.format-option input[type="radio"] { accent-color: #3b82f6; }
+.format-label { font-size: 13px; flex: 1; }
+.format-meta { font-size: 11px; color: #737373; }
+.format-actions { display: flex; gap: 8px; }
+.format-category {
+  display: flex; align-items: center; gap: 8px; margin-bottom: 14px;
+}
+.format-category select {
+  flex: 1; padding: 8px 12px; border-radius: 8px;
+  border: 1px solid #2a2a2a; background: #0f0f0f; color: #e5e5e5;
+  font-size: 16px; outline: none;
+}
+.format-category label { font-size: 13px; color: #a3a3a3; white-space: nowrap; }
+
+/* Search and sort bar */
+.toolbar { display: flex; gap: 8px; margin-bottom: 12px; align-items: center; }
+.search-bar {
+  flex: 1; padding: 8px 12px; border-radius: 8px;
+  border: 1px solid #2a2a2a; background: #1a1a1a; color: #e5e5e5;
+  font-size: 16px; outline: none; min-height: 44px;
+}
+.search-bar:focus { border-color: #3b82f6; }
+.search-bar::placeholder { color: #525252; }
+.sort-bar {
+  padding: 8px 12px; border-radius: 8px;
+  border: 1px solid #2a2a2a; background: #1a1a1a; color: #e5e5e5;
+  font-size: 13px; outline: none; cursor: pointer; min-height: 44px;
+}
+
+/* Filter chips */
+.filter-bar { display: flex; gap: 6px; margin-bottom: 12px; flex-wrap: wrap; }
+.filter-chip {
+  padding: 6px 14px; border-radius: 16px; font-size: 12px;
+  border: 1px solid #2a2a2a; background: #1a1a1a; color: #a3a3a3;
+  cursor: pointer; transition: all 0.2s; white-space: nowrap; min-height: 32px;
+  display: inline-flex; align-items: center;
+}
+.filter-chip:hover { border-color: #3b82f6; color: #e5e5e5; }
+.filter-chip.active { background: #172554; border-color: #3b82f6; color: #3b82f6; }
+
+/* Download list */
+.download-list { display: flex; flex-direction: column; gap: 10px; }
+
+/* Download card — redesigned */
+.download-card {
+  background: #1a1a1a; border: 1px solid #2a2a2a;
+  border-radius: 12px; padding: 14px; position: relative;
+  overflow: hidden; transition: transform 0.2s;
+}
+.dl-main { display: flex; gap: 12px; }
+.dl-thumb-wrap {
+  width: 72px; height: 72px; border-radius: 10px; flex-shrink: 0;
+  position: relative; overflow: hidden; background: #2a2a2a;
+  cursor: pointer;
+}
+.dl-thumb {
+  width: 100%; height: 100%; object-fit: cover; display: block;
+}
+.dl-thumb-play {
+  position: absolute; inset: 0; display: flex; align-items: center;
+  justify-content: center; background: rgba(0,0,0,0.4);
+  opacity: 0; transition: opacity 0.2s;
+}
+.dl-thumb-wrap:hover .dl-thumb-play,
+.dl-thumb-wrap.completed .dl-thumb-play { opacity: 1; }
+.dl-thumb-play svg { width: 28px; height: 28px; fill: #fff; }
+.dl-no-thumb {
+  width: 72px; height: 72px; border-radius: 10px; flex-shrink: 0;
+  background: #2a2a2a; display: flex; align-items: center; justify-content: center;
+  color: #525252; font-size: 24px;
+}
+
+.dl-body { flex: 1; min-width: 0; display: flex; flex-direction: column; justify-content: center; }
+.dl-title {
+  font-size: 14px; font-weight: 500;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  margin-bottom: 4px;
+}
+.dl-meta-line {
+  font-size: 12px; color: #737373; margin-bottom: 2px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.dl-badges { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-top: 2px; }
+.dl-status {
+  font-size: 11px; padding: 2px 8px; border-radius: 10px; flex-shrink: 0;
+}
+.dl-status.queued { background: #1e3a5f; color: #60a5fa; }
+.dl-status.fetching_info { background: #1e3a5f; color: #60a5fa; }
+.dl-status.downloading { background: #172554; color: #3b82f6; }
+.dl-status.post_processing { background: #1a2e05; color: #84cc16; }
+.dl-status.completed { background: #052e16; color: #22c55e; }
+.dl-status.failed { background: #450a0a; color: #ef4444; }
+
+/* Progress section for active cards */
+.dl-progress-section { margin-top: 10px; }
+.dl-progress-bar {
+  width: 100%; height: 4px; background: #2a2a2a; border-radius: 2px;
+  overflow: hidden;
+}
+.dl-progress-fill {
+  height: 100%; background: #3b82f6; border-radius: 2px;
+  transition: width 0.3s ease;
+}
+.dl-progress-info {
+  display: flex; justify-content: space-between;
+  font-size: 11px; color: #737373; margin-top: 6px;
+}
+
+/* Live recording */
+.live-badge {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 11px; padding: 2px 8px; border-radius: 10px;
+  background: #450a0a; color: #ef4444; font-weight: 600;
+}
+.live-dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: #ef4444; animation: pulse 1.5s ease-in-out infinite;
+}
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+.dl-live-info {
+  display: flex; gap: 12px; font-size: 12px; color: #a3a3a3; margin-top: 8px;
+}
+
+.dl-error {
+  font-size: 12px; color: #ef4444; margin-top: 8px;
+  padding: 8px; background: #450a0a22; border-radius: 6px;
+}
+.dl-actions { display: flex; gap: 6px; margin-top: 10px; flex-wrap: wrap; }
+
+.category-badge {
+  font-size: 10px; padding: 2px 8px; border-radius: 10px;
+  background: #1e293b; color: #94a3b8;
+}
+
+/* Swipe container */
+.swipe-container {
+  position: relative; overflow: hidden; border-radius: 12px;
+}
+.swipe-action {
+  position: absolute; top: 0; bottom: 0; width: 80px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 13px; font-weight: 600; color: #fff;
+}
+.swipe-action-left { left: 0; background: #3b82f6; border-radius: 12px 0 0 12px; }
+.swipe-action-right { right: 0; background: #dc2626; border-radius: 0 12px 12px 0; }
+.swipe-card-inner {
+  position: relative; z-index: 1; background: #1a1a1a;
+  transition: transform 0.2s ease;
+}
+.swipe-card-inner.swiping { transition: none; }
+
+/* Share panel */
+.share-panel {
+  margin-top: 10px; padding: 12px; background: #0f0f0f;
+  border: 1px solid #2a2a2a; border-radius: 8px;
+}
+.share-panel-title { font-size: 12px; font-weight: 600; margin-bottom: 10px; color: #a3a3a3; }
+.share-form { display: flex; flex-direction: column; gap: 8px; margin-bottom: 10px; }
+.share-form-row { display: flex; align-items: center; gap: 8px; }
+.share-form-row label { font-size: 12px; color: #a3a3a3; white-space: nowrap; }
+.share-form-row input[type="password"],
+.share-form-row input[type="text"] {
+  flex: 1; padding: 6px 10px; border-radius: 6px;
+  border: 1px solid #2a2a2a; background: #1a1a1a; color: #e5e5e5;
+  font-size: 16px; outline: none;
+}
+.share-form-row select {
+  flex: 1; padding: 6px 10px; border-radius: 6px;
+  border: 1px solid #2a2a2a; background: #1a1a1a; color: #e5e5e5;
+  font-size: 16px; outline: none;
+}
+.share-form-row input[type="checkbox"] { accent-color: #3b82f6; width: 18px; height: 18px; }
+.share-link-row {
+  display: flex; align-items: center; gap: 6px; padding: 6px 0;
+  border-bottom: 1px solid #1a1a1a; font-size: 12px;
+}
+.share-link-row:last-child { border-bottom: none; }
+.share-link-url {
+  flex: 1; color: #3b82f6; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.share-link-meta { color: #525252; font-size: 11px; white-space: nowrap; }
+.copy-btn {
+  background: none; border: 1px solid #2a2a2a; color: #a3a3a3;
+  padding: 4px 10px; border-radius: 4px; font-size: 11px;
+  cursor: pointer; white-space: nowrap; min-height: 32px;
+}
+.copy-btn:hover { background: #1a1a1a; color: #e5e5e5; }
+.delete-link-btn {
+  background: none; border: none; color: #525252;
+  cursor: pointer; font-size: 14px; padding: 0 4px; min-height: 32px;
+  display: flex; align-items: center;
+}
+.delete-link-btn:hover { color: #ef4444; }
+
+/* Category row on cards */
+.dl-category-row { display: flex; align-items: center; gap: 6px; margin-top: 8px; }
+.dl-category-row select {
+  padding: 4px 8px; border-radius: 6px;
+  border: 1px solid #2a2a2a; background: #0f0f0f; color: #e5e5e5;
+  font-size: 11px; outline: none; min-height: 32px;
+}
+
+/* Settings modal — tabbed */
+.modal-overlay {
+  display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.7);
+  z-index: 100; justify-content: center; align-items: center;
+}
+.modal-overlay.visible { display: flex; }
+.modal {
+  background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 12px;
+  padding: 24px; width: 100%; max-width: 440px; margin: 16px;
+  max-height: 90vh; overflow-y: auto; -webkit-overflow-scrolling: touch;
+}
+.modal-title { font-size: 16px; font-weight: 600; margin-bottom: 16px; }
+.modal-close {
+  float: right; background: none; border: none; color: #737373;
+  font-size: 20px; cursor: pointer; padding: 4px 8px; line-height: 1;
+  min-height: 44px; min-width: 44px; display: flex; align-items: center; justify-content: center;
+}
+.modal-close:hover { color: #e5e5e5; }
+
+/* Settings tabs */
+.settings-tabs {
+  display: flex; gap: 6px; margin-bottom: 16px; flex-wrap: wrap;
+}
+.settings-tab-content { display: none; }
+.settings-tab-content.active { display: block; }
+.tab-alert {
+  padding: 10px 14px; border-radius: 8px; font-size: 13px;
+  margin-bottom: 12px; display: none;
+}
+.tab-alert.visible { display: block; }
+.tab-alert.success { background: #052e16; color: #86efac; border: 1px solid #166534; }
+.tab-alert.error { background: #450a0a; color: #fca5a5; border: 1px solid #7f1d1d; }
+
+
+/* Spinner */
+.spinner {
+  display: inline-block; width: 14px; height: 14px;
+  border: 2px solid #525252; border-top-color: #e5e5e5;
+  border-radius: 50%; animation: spin 0.6s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* Empty state */
+.empty { text-align: center; color: #525252; padding: 48px 16px; font-size: 14px; }
+
+/* Center card for wizard/login */
+.center-wrap {
+  display: flex; justify-content: center; align-items: center;
+  min-height: 80vh; min-height: 80dvh;
+}
+.center-card { width: 100%; max-width: 440px; }
+
+/* Focus states */
+:focus-visible {
+  outline: 2px solid #3b82f6; outline-offset: 2px;
+}
+button:focus:not(:focus-visible), input:focus:not(:focus-visible),
+select:focus:not(:focus-visible) { outline: none; }
+
+/* Pull to refresh */
+.pull-indicator {
+  position: fixed;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%) translateY(-100%);
+  width: 40px;
+  height: 40px;
+  background: #1f1f1f;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+  z-index: 1000;
+  transition: transform 0.2s ease;
+  pointer-events: none;
+}
+.pull-indicator.visible {
+  transform: translateX(-50%) translateY(16px);
+}
+.pull-indicator.refreshing .pull-arrow {
+  animation: spin 0.8s linear infinite;
+}
+.pull-arrow {
+  width: 20px;
+  height: 20px;
+  border: 2px solid #3b82f6;
+  border-top-color: transparent;
+  border-radius: 50%;
+}
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Action sheet / confirm dialog */
+.action-sheet-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.6);
+  z-index: 2000;
+  display: none;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 16px;
+  padding-bottom: max(16px, env(safe-area-inset-bottom));
+  overflow: hidden;
+  touch-action: none;
+}
+.action-sheet-overlay.visible {
+  display: flex;
+}
+body.action-sheet-open {
+  overflow: hidden;
+  position: fixed;
+  width: 100%;
+}
+.action-sheet {
+  width: 100%;
+  max-width: 400px;
+  background: #1f1f1f;
+  border-radius: 16px;
+  overflow: hidden;
+  animation: slideUp 0.2s ease;
+}
+@keyframes slideUp {
+  from { transform: translateY(100%); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+.action-sheet-title {
+  padding: 16px 20px 8px;
+  font-size: 13px;
+  color: #737373;
+  text-align: center;
+}
+.action-sheet-message {
+  padding: 0 20px 16px;
+  font-size: 14px;
+  color: #a3a3a3;
+  text-align: center;
+}
+.action-sheet-btn {
+  width: 100%;
+  padding: 16px 20px;
+  font-size: 17px;
+  background: transparent;
+  border: none;
+  border-top: 1px solid #333;
+  color: #fff;
+  cursor: pointer;
+}
+.action-sheet-btn:active {
+  background: #333;
+}
+.action-sheet-btn.primary {
+  color: #3b82f6;
+}
+.action-sheet-btn.danger {
+  color: #ef4444;
+}
+.action-sheet-cancel {
+  margin-top: 8px;
+  border-radius: 16px;
+  background: #2a2a2a;
+}
+.action-sheet-cancel .action-sheet-btn {
+  border-top: none;
+  font-weight: 600;
+}
+
+/* Lock screen */
+.lock-screen {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: #0f0f0f;
+  z-index: 20000;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  padding-top: calc(24px + env(safe-area-inset-top));
+}
+.lock-screen.visible {
+  display: flex;
+}
+.lock-icon {
+  width: 64px;
+  height: 64px;
+  margin-bottom: 24px;
+  color: #3b82f6;
+}
+.lock-title {
+  font-size: 20px;
+  font-weight: 600;
+  margin-bottom: 8px;
+  text-align: center;
+}
+.lock-subtitle {
+  font-size: 14px;
+  color: #737373;
+  margin-bottom: 32px;
+  text-align: center;
+}
+.pin-dots {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 32px;
+}
+.pin-dot {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #2a2a2a;
+  transition: background 0.15s, transform 0.15s;
+}
+.pin-dot.filled {
+  background: #3b82f6;
+}
+.pin-dot.error {
+  background: #ef4444;
+  animation: shake 0.3s ease;
+}
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-4px); }
+  75% { transform: translateX(4px); }
+}
+.pin-keypad {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+  max-width: 280px;
+}
+.pin-key {
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  border: 1px solid #2a2a2a;
+  background: #1a1a1a;
+  color: #e5e5e5;
+  font-size: 28px;
+  font-weight: 500;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s;
+  -webkit-tap-highlight-color: transparent;
+}
+.pin-key:active {
+  background: #3b82f6;
+  border-color: #3b82f6;
+  transform: scale(0.95);
+}
+.pin-key.biometric {
+  font-size: 32px;
+}
+.pin-key.delete {
+  font-size: 20px;
+}
+.pin-key.invisible {
+  visibility: hidden;
+}
+.lock-error {
+  color: #ef4444;
+  font-size: 13px;
+  margin-top: 16px;
+  min-height: 20px;
+  text-align: center;
+}
+.biometric-btn {
+  margin-top: 24px;
+  padding: 12px 24px;
+  border-radius: 8px;
+  border: 1px solid #2a2a2a;
+  background: #1a1a1a;
+  color: #e5e5e5;
+  font-size: 14px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.biometric-btn:active {
+  background: #2a2a2a;
+}
+</style>
+</head>
+<body>
+<!-- Lock screen -->
+<div class="lock-screen" id="lockScreen">
+  <svg class="lock-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+    <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+    <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+  </svg>
+  <div class="lock-title">Media Downloader</div>
+  <div class="lock-subtitle">Enter your PIN to unlock</div>
+  <div class="pin-dots" id="pinDots">
+    <div class="pin-dot"></div>
+    <div class="pin-dot"></div>
+    <div class="pin-dot"></div>
+    <div class="pin-dot"></div>
+  </div>
+  <div class="pin-keypad" id="pinKeypad">
+    <button class="pin-key" data-key="1">1</button>
+    <button class="pin-key" data-key="2">2</button>
+    <button class="pin-key" data-key="3">3</button>
+    <button class="pin-key" data-key="4">4</button>
+    <button class="pin-key" data-key="5">5</button>
+    <button class="pin-key" data-key="6">6</button>
+    <button class="pin-key" data-key="7">7</button>
+    <button class="pin-key" data-key="8">8</button>
+    <button class="pin-key" data-key="9">9</button>
+    <button class="pin-key biometric" id="biometricKey" data-key="biometric" style="display:none">
+      <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M12 2a10 10 0 0 0-7.07 17.07"/>
+        <path d="M12 2a10 10 0 0 1 7.07 17.07"/>
+        <path d="M2 12h2"/>
+        <path d="M20 12h2"/>
+        <path d="M12 6a6 6 0 0 0-4.24 10.24"/>
+        <path d="M12 6a6 6 0 0 1 4.24 10.24"/>
+        <circle cx="12" cy="12" r="2"/>
+      </svg>
+    </button>
+    <button class="pin-key" data-key="0">0</button>
+    <button class="pin-key delete" data-key="delete">⌫</button>
+  </div>
+  <div class="lock-error" id="lockError"></div>
+</div>
+
+<!-- Pull to refresh indicator -->
+<div class="pull-indicator" id="pullIndicator">
+  <div class="pull-arrow"></div>
+</div>
+
+<!-- Action sheet overlays -->
+<div class="action-sheet-overlay" id="deleteConfirmSheet">
+  <div>
+    <div class="action-sheet">
+      <div class="action-sheet-title">Delete Download</div>
+      <div class="action-sheet-message" id="deleteConfirmMessage">This will permanently delete the file.</div>
+      <button class="action-sheet-btn danger" onclick="confirmDelete()">Delete</button>
+    </div>
+    <div class="action-sheet action-sheet-cancel">
+      <button class="action-sheet-btn" onclick="closeDeleteConfirm()">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<div class="action-sheet-overlay" id="saveActionSheet">
+  <div>
+    <div class="action-sheet">
+      <div class="action-sheet-title" id="saveActionTitle">Save Video</div>
+      <button class="action-sheet-btn primary" id="saveToFilesBtn">Save to Files</button>
+      <button class="action-sheet-btn" id="shareFileBtn">Share</button>
+    </div>
+    <div class="action-sheet action-sheet-cancel">
+      <button class="action-sheet-btn" onclick="closeSaveSheet()">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<div class="container">
+
+  <!-- ============================================================= -->
+  <!-- SETUP WIZARD SCREEN                                            -->
+  <!-- ============================================================= -->
+  <div id="wizardScreen" class="screen">
+    <div class="center-wrap">
+      <div class="center-card card">
+        <div class="card-title">Setup</div>
+        <div class="card-subtitle">Configure your media downloader</div>
+
+        <div class="steps">
+          <div class="step-dot active" id="stepDot0"></div>
+          <div class="step-dot" id="stepDot1"></div>
+          <div class="step-dot" id="stepDot2"></div>
+        </div>
+
+        <div id="wizardAlert" class="alert alert-error"></div>
+
+        <!-- Step 0: Credentials -->
+        <div class="wizard-step active" id="wizardStep0">
+          <div class="form-group">
+            <label class="form-label">Username</label>
+            <input class="form-input" id="setupUsername" type="text" placeholder="admin" autocomplete="username" autocapitalize="off">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Password</label>
+            <input class="form-input" id="setupPassword" type="password" placeholder="Choose a password" autocomplete="new-password" autocapitalize="off">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Confirm password</label>
+            <input class="form-input" id="setupPasswordConfirm" type="password" placeholder="Re-enter password" autocomplete="new-password" autocapitalize="off">
+            <div class="form-error" id="setupPasswordError">Passwords do not match</div>
+          </div>
+          <div class="btn-row">
+            <button class="btn btn-primary btn-block" id="wizardNextBtn" onclick="wizardNext(0)" disabled>Next</button>
+          </div>
+        </div>
+
+        <!-- Step 1: Headscale connection -->
+        <div class="wizard-step" id="wizardStep1">
+          <div class="form-group">
+            <label class="form-label">Headscale URL</label>
+            <input class="form-input" id="setupHeadscaleUrl" type="url" placeholder="https://hs.example.com">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Pre-authorized key</label>
+            <input class="form-input" id="setupAuthkey" type="password" placeholder="Paste your auth key">
+          </div>
+          <div class="btn-row">
+            <button class="btn btn-ghost" onclick="wizardBack(1)">Back</button>
+            <button class="btn btn-primary btn-block" id="setupConnectBtn" onclick="wizardConnect()" disabled>Connect to Headscale</button>
+          </div>
+        </div>
+
+        <!-- Step 2: Exit node selection -->
+        <div class="wizard-step" id="wizardStep2">
+          <div class="form-group">
+            <label class="form-label">Select exit node</label>
+            <div class="node-list" id="exitNodeList">
+              <div class="node-empty">No exit nodes found. Make sure your exit nodes are online.</div>
+            </div>
+          </div>
+          <div class="btn-row">
+            <button class="btn btn-ghost" onclick="wizardBack(2)">Back</button>
+            <button class="btn btn-primary btn-block" id="setupCompleteBtn" onclick="wizardComplete()">Complete Setup</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================= -->
+  <!-- LOGIN SCREEN                                                    -->
+  <!-- ============================================================= -->
+  <div id="loginScreen" class="screen">
+    <div class="center-wrap">
+      <div class="center-card card">
+        <div class="card-title">Sign in</div>
+        <div class="card-subtitle">Enter your credentials to continue</div>
+
+        <div id="loginAlert" class="alert alert-error"></div>
+
+        <div class="form-group">
+          <label class="form-label">Username</label>
+          <input class="form-input" id="loginUsername" type="text" autocomplete="username" autocapitalize="off">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Password</label>
+          <input class="form-input" id="loginPassword" type="password" autocomplete="current-password" autocapitalize="off">
+        </div>
+        <div class="btn-row">
+          <button class="btn btn-primary btn-block" id="loginBtn" onclick="doLogin()">Sign in</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================= -->
+  <!-- MAIN APP SCREEN                                                 -->
+  <!-- ============================================================= -->
+  <div id="mainScreen" class="screen">
+    <!-- Header -->
+    <div class="header">
+      <h1>Media Downloader</h1>
+      <div class="header-right">
+        <div class="vpn-badge" style="cursor: pointer;" onclick="refreshExternalIp()">
+          <div class="vpn-dot" id="vpnDot"></div>
+          <span id="externalIp">--</span>
+        </div>
+        <div class="menu-wrapper">
+          <button class="menu-btn" id="menuBtn" aria-label="Menu">&#8942;</button>
+          <div class="menu-dropdown" id="menuDropdown">
+            <button class="menu-item" onclick="openSettings(); closeMenu();">Settings</button>
+            <button class="menu-item" onclick="openCategoryManager(); closeMenu();">Categories</button>
+            <div class="menu-divider"></div>
+            <button class="menu-item danger" onclick="doLogout(); closeMenu();">Sign out</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- URL Input -->
+    <div class="input-area">
+      <input type="text" id="urlInput" placeholder="Paste video URL..." autocomplete="off">
+      <button class="btn btn-primary" id="fetchBtn" onclick="fetchFormats()">Fetch</button>
+    </div>
+
+    <!-- Format Selection -->
+    <div class="format-panel" id="formatPanel">
+      <div class="format-header">
+        <div id="formatThumbWrap"></div>
+        <div class="format-title" id="formatTitle"></div>
+      </div>
+      <div class="format-list" id="formatList"></div>
+      <div class="format-category" id="formatCategory">
+        <label>Category:</label>
+        <select id="formatCategorySelect"><option value="">None</option></select>
+      </div>
+      <div class="format-actions">
+        <button class="btn btn-primary" id="downloadBtn" onclick="startDownload()">Download</button>
+        <button class="btn btn-ghost" onclick="closeFormats()">Cancel</button>
+      </div>
+    </div>
+
+    <!-- Search + Sort toolbar -->
+    <div class="toolbar" id="toolbar">
+      <input class="search-bar" id="searchBar" type="text" placeholder="Search downloads..." autocomplete="off">
+      <select class="sort-bar" id="sortBar">
+        <option value="status">Status</option>
+        <option value="date_newest">Newest</option>
+        <option value="date_oldest">Oldest</option>
+        <option value="name_az">Name A-Z</option>
+        <option value="name_za">Name Z-A</option>
+        <option value="size_desc">Size &#8595;</option>
+        <option value="size_asc">Size &#8593;</option>
+      </select>
+    </div>
+
+    <!-- Category filter chips -->
+    <div class="filter-bar" id="filterBar"></div>
+
+    <!-- Downloads -->
+    <div class="download-list" id="downloadList">
+      <div class="empty" id="emptyState">No downloads yet. Paste a URL above to get started.</div>
+    </div>
+  </div>
+
+</div>
+
+<!-- Settings Modal -->
+<div class="modal-overlay" id="settingsModal">
+  <div class="modal">
+    <button class="modal-close" onclick="closeSettings()">&times;</button>
+    <div class="modal-title">Settings</div>
+    <div class="settings-tabs" id="settingsTabs">
+      <span class="filter-chip active" data-tab="general" onclick="switchSettingsTab('general')">General</span>
+      <span class="filter-chip" data-tab="account" onclick="switchSettingsTab('account')">Account</span>
+      <span class="filter-chip" data-tab="vpn" onclick="switchSettingsTab('vpn')">VPN</span>
+      <span class="filter-chip" data-tab="security" onclick="switchSettingsTab('security')">Security</span>
+    </div>
+
+    <!-- General tab -->
+    <div class="settings-tab-content active" id="settingsTab-general">
+      <div id="generalAlert" class="tab-alert"></div>
+      <div class="form-group">
+        <label class="form-label">Public URL (for share links)</label>
+        <input class="form-input" id="settingsPublicUrl" type="url" placeholder="https://dl.example.com">
+      </div>
+      <div class="btn-row">
+        <button class="btn btn-primary" onclick="saveGeneralSettings()">Save</button>
+      </div>
+    </div>
+
+    <!-- Account tab -->
+    <div class="settings-tab-content" id="settingsTab-account">
+      <div id="accountAlert" class="tab-alert"></div>
+      <div class="form-group">
+        <label class="form-label">Current password (required)</label>
+        <input class="form-input" id="settingsCurrentPassword" type="password" autocomplete="current-password" autocapitalize="off">
+      </div>
+      <div class="form-group">
+        <label class="form-label">New username</label>
+        <input class="form-input" id="settingsNewUsername" type="text" placeholder="Leave blank to keep current" autocomplete="username" autocapitalize="off">
+      </div>
+      <div class="form-group">
+        <label class="form-label">New password</label>
+        <input class="form-input" id="settingsNewPassword" type="password" placeholder="Leave blank to keep current" autocomplete="new-password" autocapitalize="off">
+      </div>
+      <div class="btn-row">
+        <button class="btn btn-primary" onclick="saveAccountSettings()">Update</button>
+      </div>
+    </div>
+
+    <!-- VPN tab -->
+    <div class="settings-tab-content" id="settingsTab-vpn">
+      <div id="vpnAlert" class="tab-alert"></div>
+      <div class="form-group">
+        <label class="form-label">Exit node</label>
+        <div class="node-list" id="settingsExitNodeList">
+          <div class="node-empty">Loading...</div>
+        </div>
+        <div class="btn-row" style="margin-top: 12px;">
+          <button class="btn btn-primary" onclick="changeExitNode()">Change Exit Node</button>
+          <button class="btn btn-danger" onclick="disconnectVpn()">Disconnect</button>
+        </div>
+      </div>
+      <details style="margin-top: 16px;">
+        <summary style="font-size: 13px; color: #737373; cursor: pointer;">Advanced: Reconnect with different credentials</summary>
+        <div style="margin-top: 12px;">
+          <div class="form-group">
+            <label class="form-label">Headscale URL</label>
+            <input class="form-input" id="settingsHeadscaleUrl" type="url" placeholder="https://hs.example.com">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Auth key</label>
+            <input class="form-input" id="settingsAuthkey" type="password" placeholder="Enter auth key to reconnect">
+          </div>
+          <div class="btn-row">
+            <button class="btn btn-primary" onclick="saveVpnSettings()">Reconnect VPN</button>
+          </div>
+        </div>
+      </details>
+    </div>
+
+    <!-- Security tab -->
+    <div class="settings-tab-content" id="settingsTab-security">
+      <div id="securityAlert" class="tab-alert"></div>
+      <div class="form-group">
+        <label class="form-label">App Lock</label>
+        <div style="display: flex; align-items: center; gap: 12px; margin-top: 8px;">
+          <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+            <input type="checkbox" id="pinEnabled" onchange="togglePinLock()" style="accent-color: #3b82f6; width: 18px; height: 18px;">
+            <span style="font-size: 14px;">Enable PIN lock</span>
+          </label>
+        </div>
+        <p style="font-size: 12px; color: #737373; margin-top: 8px;">Lock app when returning from background</p>
+      </div>
+      <div class="form-group" id="pinSetupGroup" style="display: none;">
+        <label class="form-label">Set PIN (4 digits)</label>
+        <input class="form-input" id="pinSetupInput" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="4" placeholder="Enter 4-digit PIN" autocomplete="off">
+        <input class="form-input" id="pinConfirmInput" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="4" placeholder="Confirm PIN" autocomplete="off" style="margin-top: 8px;">
+        <div class="btn-row">
+          <button class="btn btn-primary" onclick="savePinSettings()">Save PIN</button>
+          <button class="btn btn-ghost" onclick="cancelPinSetup()">Cancel</button>
+        </div>
+      </div>
+      <div class="form-group" id="biometricGroup" style="display: none;">
+        <label class="form-label">Biometric Unlock</label>
+        <div style="display: flex; align-items: center; gap: 12px; margin-top: 8px;">
+          <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+            <input type="checkbox" id="biometricEnabled" onchange="toggleBiometric()" style="accent-color: #3b82f6; width: 18px; height: 18px;">
+            <span style="font-size: 14px;">Enable Face ID / Touch ID</span>
+          </label>
+        </div>
+        <p style="font-size: 12px; color: #737373; margin-top: 8px;">Use biometrics as an alternative to PIN</p>
+      </div>
+      <div class="form-group" id="changePinGroup" style="display: none;">
+        <button class="btn btn-ghost" onclick="showChangePinUI()">Change PIN</button>
+        <button class="btn btn-danger" onclick="removePinLock()" style="margin-left: 8px;">Remove PIN</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Category Manager Modal -->
+<div class="modal-overlay" id="categoryModal">
+  <div class="modal">
+    <button class="modal-close" onclick="closeCategoryManager()">&times;</button>
+    <div class="modal-title">Categories</div>
+    <div id="categoryList" style="margin-bottom:16px;"></div>
+    <div style="display:flex;gap:8px;">
+      <input class="form-input" id="newCategoryName" type="text" placeholder="New category name" style="margin:0;">
+      <button class="btn btn-primary btn-sm" onclick="createCategory()">Add</button>
+    </div>
+  </div>
+</div>
+
+
+<script>
+// ===================================================================
+// Auth & state
+// ===================================================================
+let authToken = localStorage.getItem('ytdlp_token');
+
+const state = {
+  downloads: new Map(),
+  categories: [],
+  formats: null,
+  selectedFormat: null,
+  vpn: { connected: false, exit_node: null, exit_node_online: false },
+  fetchedUrl: null,
+  searchTerm: '',
+  sortBy: 'status',
+  filterCategory: null,
+  openSharePanels: new Set(),
+  shareLinks: new Map(),
+  settingsVpnLoaded: false,
+  settingsSelectedExitNode: null,
+};
+
+// Wizard state
+const wizard = {
+  username: '',
+  password: '',
+  headscaleUrl: '',
+  headscaleAuthkey: '',
+  exitNodes: [],
+  selectedExitNode: null,
+};
+
+// Live download timer
+let liveTimer = null;
+
+function showScreen(id) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+}
+
+// Authenticated fetch wrapper
+async function apiFetch(url, opts = {}) {
+  opts.headers = opts.headers || {};
+  if (authToken) {
+    opts.headers['Authorization'] = 'Bearer ' + authToken;
+  }
+  return fetch(url, opts);
+}
+
+// ===================================================================
+// Initialization
+// ===================================================================
+async function init() {
+  try {
+    const resp = await fetch('/api/setup/status');
+    const data = await resp.json();
+
+    if (!data.setup_complete) {
+      showScreen('wizardScreen');
+      return;
+    }
+
+    if (authToken) {
+      try {
+        const vResp = await apiFetch('/api/auth/validate');
+        if (vResp.ok) {
+          enterMainApp();
+          return;
+        }
+      } catch (e) {}
+    }
+
+    authToken = null;
+    localStorage.removeItem('ytdlp_token');
+    showScreen('loginScreen');
+  } catch (e) {
+    showScreen('loginScreen');
+  }
+}
+
+function enterMainApp() {
+  showScreen('mainScreen');
+  loadVPN();
+  loadDownloads();
+  loadCategories();
+  connectSSE();
+  startLiveTimer();
+  startIpRefresh();
+
+  // Lock app if PIN is enabled (fresh app load), but not if returning from video
+  if (isPinEnabled() && !sessionStorage.getItem('media-dl-video-nav')) {
+    lockApp();
+  }
+}
+
+// ===================================================================
+// Setup wizard
+// ===================================================================
+function setWizardStep(step) {
+  document.querySelectorAll('.wizard-step').forEach(s => s.classList.remove('active'));
+  document.getElementById('wizardStep' + step).classList.add('active');
+  for (let i = 0; i < 3; i++) {
+    const dot = document.getElementById('stepDot' + i);
+    dot.className = 'step-dot';
+    if (i < step) dot.classList.add('done');
+    if (i === step) dot.classList.add('active');
+  }
+  hideAlert('wizardAlert');
+}
+
+function wizardNext(fromStep) {
+  if (fromStep === 0) {
+    const user = document.getElementById('setupUsername').value.trim();
+    const pass = document.getElementById('setupPassword').value;
+    const passConfirm = document.getElementById('setupPasswordConfirm').value;
+
+    if (!user) { showAlert('wizardAlert', 'Username is required.'); return; }
+    if (pass.length < 4) { showAlert('wizardAlert', 'Password must be at least 4 characters.'); return; }
+    if (pass !== passConfirm) {
+      document.getElementById('setupPasswordError').classList.add('visible');
+      return;
+    }
+    document.getElementById('setupPasswordError').classList.remove('visible');
+
+    wizard.username = user;
+    wizard.password = pass;
+    setWizardStep(1);
+  }
+}
+
+function wizardBack(fromStep) {
+  setWizardStep(fromStep - 1);
+}
+
+async function wizardConnect() {
+  const url = document.getElementById('setupHeadscaleUrl').value.trim();
+  const authkey = document.getElementById('setupAuthkey').value.trim();
+
+  if (!url) { showAlert('wizardAlert', 'Headscale URL is required.'); return; }
+  if (!authkey) { showAlert('wizardAlert', 'Auth key is required.'); return; }
+
+  wizard.headscaleUrl = url;
+  wizard.headscaleAuthkey = authkey;
+
+  const btn = document.getElementById('setupConnectBtn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span> Connecting...';
+
+  try {
+    const resp = await fetch('/api/setup/connect', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ headscale_url: url, headscale_authkey: authkey }),
+    });
+
+    if (!resp.ok) {
+      const err = await resp.json();
+      showAlert('wizardAlert', err.detail || 'Connection failed.');
+      return;
+    }
+
+    const data = await resp.json();
+    wizard.exitNodes = data.exit_nodes || [];
+    renderExitNodes();
+    setWizardStep(2);
+  } catch (e) {
+    showAlert('wizardAlert', 'Network error: ' + e.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Connect to Headscale';
+  }
+}
+
+function renderExitNodes() {
+  const list = document.getElementById('exitNodeList');
+  if (wizard.exitNodes.length === 0) {
+    list.innerHTML = '<div class="node-empty">No exit nodes found. Make sure your exit nodes are online and advertising as exit nodes.</div>';
+    return;
+  }
+
+  list.innerHTML = wizard.exitNodes.map(n => `
+    <label class="node-option" data-ip="${n.ip}">
+      <input type="radio" name="exitNode" value="${n.ip}">
+      <div>
+        <div class="node-name">${escapeHtml(n.name)}</div>
+        <div class="node-ip">${escapeHtml(n.ip)}</div>
+      </div>
+      <span class="node-status ${n.online ? 'online' : 'offline'}">${n.online ? 'online' : 'offline'}</span>
+    </label>
+  `).join('');
+
+  if (wizard.exitNodes.length > 0) {
+    wizard.selectedExitNode = wizard.exitNodes[0].ip;
+    list.querySelector('.node-option').classList.add('selected');
+    list.querySelector('input[type="radio"]').checked = true;
+  }
+
+  list.querySelectorAll('.node-option').forEach(el => {
+    el.addEventListener('click', () => {
+      list.querySelectorAll('.node-option').forEach(o => o.classList.remove('selected'));
+      el.classList.add('selected');
+      el.querySelector('input[type="radio"]').checked = true;
+      wizard.selectedExitNode = el.dataset.ip;
+    });
+  });
+}
+
+async function wizardComplete() {
+  if (!wizard.selectedExitNode) {
+    showAlert('wizardAlert', 'Please select an exit node.');
+    return;
+  }
+
+  const btn = document.getElementById('setupCompleteBtn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span> Finishing...';
+
+  try {
+    const resp = await fetch('/api/setup/complete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        username: wizard.username,
+        password: wizard.password,
+        headscale_url: wizard.headscaleUrl,
+        headscale_authkey: wizard.headscaleAuthkey,
+        exit_node: wizard.selectedExitNode,
+      }),
+    });
+
+    if (!resp.ok) {
+      const err = await resp.json();
+      showAlert('wizardAlert', err.detail || 'Setup failed.');
+      return;
+    }
+
+    const data = await resp.json();
+    authToken = data.token;
+    localStorage.setItem('ytdlp_token', authToken);
+    enterMainApp();
+  } catch (e) {
+    showAlert('wizardAlert', 'Network error: ' + e.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Complete Setup';
+  }
+}
+
+// ===================================================================
+// Login
+// ===================================================================
+async function doLogin() {
+  const username = document.getElementById('loginUsername').value.trim();
+  const password = document.getElementById('loginPassword').value;
+
+  if (!username || !password) {
+    showAlert('loginAlert', 'Enter username and password.');
+    return;
+  }
+
+  const btn = document.getElementById('loginBtn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span>';
+
+  try {
+    const resp = await fetch('/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password }),
+    });
+
+    if (!resp.ok) {
+      const err = await resp.json();
+      showAlert('loginAlert', err.detail || 'Login failed.');
+      return;
+    }
+
+    const data = await resp.json();
+    authToken = data.token;
+    localStorage.setItem('ytdlp_token', authToken);
+    hideAlert('loginAlert');
+    enterMainApp();
+  } catch (e) {
+    showAlert('loginAlert', 'Network error: ' + e.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Sign in';
+  }
+}
+
+async function doLogout() {
+  try {
+    await apiFetch('/api/auth/logout', { method: 'POST' });
+  } catch (e) {}
+  authToken = null;
+  localStorage.removeItem('ytdlp_token');
+  if (evtSource) { evtSource.close(); evtSource = null; }
+  stopLiveTimer();
+  showScreen('loginScreen');
+}
+
+document.getElementById('loginPassword').addEventListener('keydown', e => {
+  if (e.key === 'Enter') doLogin();
+});
+document.getElementById('loginUsername').addEventListener('keydown', e => {
+  if (e.key === 'Enter') doLogin();
+});
+
+// ===================================================================
+// Wizard field validation & Enter key handling
+// ===================================================================
+function validateWizardStep0() {
+  const user = document.getElementById('setupUsername').value.trim();
+  const pass = document.getElementById('setupPassword').value;
+  const confirm = document.getElementById('setupPasswordConfirm').value;
+  document.getElementById('wizardNextBtn').disabled = !(user && pass.length >= 4 && confirm);
+}
+
+function validateWizardStep1() {
+  const url = document.getElementById('setupHeadscaleUrl').value.trim();
+  const key = document.getElementById('setupAuthkey').value.trim();
+  document.getElementById('setupConnectBtn').disabled = !(url && key);
+}
+
+['setupUsername', 'setupPassword', 'setupPasswordConfirm'].forEach(id => {
+  const el = document.getElementById(id);
+  el.addEventListener('input', validateWizardStep0);
+  el.addEventListener('keydown', e => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      if (!document.getElementById('wizardNextBtn').disabled) wizardNext(0);
+    }
+  });
+});
+
+['setupHeadscaleUrl', 'setupAuthkey'].forEach(id => {
+  const el = document.getElementById(id);
+  el.addEventListener('input', validateWizardStep1);
+  el.addEventListener('keydown', e => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      if (!document.getElementById('setupConnectBtn').disabled) wizardConnect();
+    }
+  });
+});
+
+// ===================================================================
+// Alert helpers
+// ===================================================================
+function showAlert(id, msg) {
+  const el = document.getElementById(id);
+  el.textContent = msg;
+  el.classList.add('visible');
+}
+function hideAlert(id) {
+  document.getElementById(id).classList.remove('visible');
+}
+
+function showTabAlert(id, msg, type) {
+  const el = document.getElementById(id);
+  el.textContent = msg;
+  el.className = 'tab-alert visible ' + type;
+  setTimeout(() => { el.classList.remove('visible'); }, 4000);
+}
+
+// ===================================================================
+// Menu
+// ===================================================================
+function toggleMenu() {
+  document.getElementById('menuDropdown').classList.toggle('open');
+}
+function closeMenu() {
+  document.getElementById('menuDropdown').classList.remove('open');
+}
+
+document.getElementById('menuBtn').addEventListener('click', e => {
+  e.stopPropagation();
+  toggleMenu();
+});
+
+document.addEventListener('click', e => {
+  const dd = document.getElementById('menuDropdown');
+  if (dd.classList.contains('open') && !e.target.closest('.menu-wrapper')) {
+    closeMenu();
+  }
+});
+
+// ===================================================================
+// SSE
+// ===================================================================
+let evtSource = null;
+function connectSSE() {
+  if (evtSource) { evtSource.close(); }
+  if (!authToken) return;
+
+  evtSource = new EventSource('/api/events?token=' + encodeURIComponent(authToken));
+  evtSource.addEventListener('download_progress', e => {
+    updateDownload(JSON.parse(e.data).id, JSON.parse(e.data));
+  });
+  evtSource.addEventListener('download_complete', e => {
+    updateDownload(JSON.parse(e.data).id, JSON.parse(e.data));
+  });
+  evtSource.addEventListener('download_failed', e => {
+    updateDownload(JSON.parse(e.data).id, JSON.parse(e.data));
+  });
+  evtSource.addEventListener('download_queued', e => {
+    updateDownload(JSON.parse(e.data).id, JSON.parse(e.data));
+  });
+  evtSource.addEventListener('vpn_status', e => {
+    state.vpn = JSON.parse(e.data);
+    renderVPN();
+  });
+  evtSource.addEventListener('ping', () => {});
+  evtSource.onerror = () => {
+    evtSource.close();
+    setTimeout(connectSSE, 3000);
+  };
+}
+
+function updateDownload(id, patch) {
+  const existing = state.downloads.get(id) || {};
+  state.downloads.set(id, { ...existing, ...patch, id });
+  renderDownloads();
+}
+
+// ===================================================================
+// Fetch formats
+// ===================================================================
+async function fetchFormats() {
+  const url = document.getElementById('urlInput').value.trim();
+  if (!url) return;
+
+  const btn = document.getElementById('fetchBtn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span>';
+
+  try {
+    const resp = await apiFetch('/api/formats?url=' + encodeURIComponent(url));
+    if (resp.status === 401) { doLogout(); return; }
+    if (!resp.ok) {
+      const err = await resp.json();
+      alert(err.detail || 'Failed to fetch formats');
+      return;
+    }
+    const data = await resp.json();
+    state.formats = data;
+    state.fetchedUrl = url;
+    state.selectedFormat = null;
+    renderFormats();
+  } catch (e) {
+    alert('Network error: ' + e.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Fetch';
+  }
+}
+
+function renderFormats() {
+  const panel = document.getElementById('formatPanel');
+  if (!state.formats) { panel.classList.remove('visible'); return; }
+
+  // Thumbnail with preloader - use proxy to avoid CORS issues
+  const thumbWrap = document.getElementById('formatThumbWrap');
+  const thumbUrl = state.formats.thumbnail;
+  if (thumbUrl) {
+    // Use proxy endpoint to fetch thumbnail (avoids CORS blocks from Instagram, etc.)
+    const proxyUrl = '/api/proxy-thumbnail?url=' + encodeURIComponent(thumbUrl) + '&token=' + encodeURIComponent(authToken);
+    const img = new Image();
+    img.onload = () => {
+      thumbWrap.innerHTML = '<img class="format-thumb" src="' + escapeAttr(proxyUrl) + '" alt="">';
+    };
+    img.onerror = () => {
+      thumbWrap.innerHTML = '<div class="format-thumb-placeholder">&#9654;</div>';
+    };
+    img.src = proxyUrl;
+    // Show placeholder while loading
+    thumbWrap.innerHTML = '<div class="format-thumb-placeholder">&#9654;</div>';
+  } else {
+    thumbWrap.innerHTML = '<div class="format-thumb-placeholder">&#9654;</div>';
+  }
+
+  document.getElementById('formatTitle').textContent = state.formats.title || 'Unknown title';
+
+  const videoFormats = state.formats.formats
+    .filter(f => f.has_video)
+    .sort((a, b) => {
+      const ha = parseInt(a.resolution) || 0;
+      const hb = parseInt(b.resolution) || 0;
+      return hb - ha;
+    });
+
+  const seen = new Set();
+  const unique = [];
+  for (const f of videoFormats) {
+    const key = f.quality_label || f.format_id;
+    if (!seen.has(key)) { seen.add(key); unique.push(f); }
+  }
+
+  const list = document.getElementById('formatList');
+  list.innerHTML = unique.map(f => {
+    const size = f.filesize || f.filesize_approx;
+    const sizeStr = size ? formatBytes(size) : '';
+    const codecStr = [f.vcodec, f.acodec].filter(c => c && c !== 'none').map(c => c.split('.')[0]).join('+');
+    const audioTag = f.has_audio ? '' : ' (video only)';
+    return `
+      <label class="format-option" data-fid="${f.format_id}">
+        <input type="radio" name="format" value="${f.format_id}">
+        <span class="format-label">${f.quality_label || f.format_id}${audioTag}</span>
+        <span class="format-meta">${codecStr}</span>
+        <span class="format-meta">${sizeStr}</span>
+      </label>
+    `;
+  }).join('');
+
+  if (unique.length > 0) {
+    state.selectedFormat = unique[0].format_id;
+    list.querySelector('.format-option').classList.add('selected');
+    list.querySelector('input[type="radio"]').checked = true;
+  }
+
+  list.querySelectorAll('.format-option').forEach(el => {
+    el.addEventListener('click', () => {
+      list.querySelectorAll('.format-option').forEach(o => o.classList.remove('selected'));
+      el.classList.add('selected');
+      el.querySelector('input[type="radio"]').checked = true;
+      state.selectedFormat = el.dataset.fid;
+    });
+  });
+
+  updateFormatCategorySelect();
+  panel.classList.add('visible');
+}
+
+function updateFormatCategorySelect() {
+  const sel = document.getElementById('formatCategorySelect');
+  sel.innerHTML = '<option value="">None</option>' +
+    state.categories.map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join('');
+}
+
+function closeFormats() {
+  state.formats = null;
+  state.selectedFormat = null;
+  document.getElementById('formatPanel').classList.remove('visible');
+}
+
+// ===================================================================
+// Downloads
+// ===================================================================
+async function startDownload() {
+  if (!state.fetchedUrl) return;
+
+  const btn = document.getElementById('downloadBtn');
+  btn.disabled = true;
+
+  const categoryId = document.getElementById('formatCategorySelect').value || null;
+
+  try {
+    const resp = await apiFetch('/api/downloads', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url: state.fetchedUrl, format_id: state.selectedFormat, category_id: categoryId }),
+    });
+    if (resp.status === 401) { doLogout(); return; }
+    if (!resp.ok) {
+      const err = await resp.json();
+      alert(err.detail || 'Failed to start download');
+      return;
+    }
+    closeFormats();
+    document.getElementById('urlInput').value = '';
+    await loadDownloads();
+  } catch (e) {
+    alert('Network error: ' + e.message);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+// Delete confirmation sheet
+let pendingDeleteId = null;
+
+let actionSheetScrollY = 0;
+
+function showDeleteConfirm(id) {
+  const d = state.downloads.get(id);
+  const title = d ? (d.title || d.filename || 'this download') : 'this download';
+  document.getElementById('deleteConfirmMessage').textContent =
+    `"${title.substring(0, 50)}${title.length > 50 ? '...' : ''}" will be permanently deleted.`;
+  pendingDeleteId = id;
+  actionSheetScrollY = window.scrollY;
+  document.body.classList.add('action-sheet-open');
+  document.body.style.top = `-${actionSheetScrollY}px`;
+  document.getElementById('deleteConfirmSheet').classList.add('visible');
+}
+
+function closeDeleteConfirm() {
+  pendingDeleteId = null;
+  document.getElementById('deleteConfirmSheet').classList.remove('visible');
+  document.body.classList.remove('action-sheet-open');
+  document.body.style.top = '';
+  window.scrollTo(0, actionSheetScrollY);
+}
+
+async function confirmDelete() {
+  const id = pendingDeleteId;
+  closeDeleteConfirm();
+  if (!id) return;
+  try {
+    const resp = await apiFetch('/api/downloads/' + id, { method: 'DELETE' });
+    if (resp.status === 401) { doLogout(); return; }
+    if (!resp.ok) {
+      const err = await resp.json();
+      alert(err.detail || 'Failed to delete');
+      return;
+    }
+    state.downloads.delete(id);
+    state.shareLinks.delete(id);
+    state.openSharePanels.delete(id);
+    renderDownloads();
+  } catch (e) {
+    alert('Failed to delete: ' + e.message);
+  }
+}
+
+document.getElementById('deleteConfirmSheet').onclick = e => {
+  if (e.target === document.getElementById('deleteConfirmSheet')) closeDeleteConfirm();
+};
+
+async function deleteDownload(id) {
+  showDeleteConfirm(id);
+}
+
+async function retryDownload(id) {
+  try {
+    const resp = await apiFetch('/api/downloads/' + id + '/retry', { method: 'POST' });
+    if (resp.status === 401) { doLogout(); return; }
+    if (!resp.ok) {
+      const err = await resp.json();
+      alert(err.detail || 'Failed to retry');
+      return;
+    }
+    state.downloads.delete(id);
+    state.shareLinks.delete(id);
+    state.openSharePanels.delete(id);
+    await loadDownloads();
+  } catch (e) {
+    alert('Failed to retry: ' + e.message);
+  }
+}
+
+function downloadFile(id) {
+  const d = state.downloads.get(id);
+  const filename = d ? d.filename : 'download';
+  const url = '/api/downloads/' + id + '/file?token=' + encodeURIComponent(authToken);
+
+  // Use anchor with download attribute for proper file download
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.style.display = 'none';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+}
+
+// Save action sheet
+let pendingSaveId = null;
+
+function showSaveSheet(id) {
+  const d = state.downloads.get(id);
+  if (!d) return;
+  const title = d.title || d.filename || 'Video';
+  document.getElementById('saveActionTitle').textContent = title.substring(0, 40) + (title.length > 40 ? '...' : '');
+  pendingSaveId = id;
+
+  // Show/hide share button based on capability
+  const shareBtn = document.getElementById('shareFileBtn');
+  shareBtn.style.display = (navigator.share && navigator.canShare) ? '' : 'none';
+
+  actionSheetScrollY = window.scrollY;
+  document.body.classList.add('action-sheet-open');
+  document.body.style.top = `-${actionSheetScrollY}px`;
+
+  document.getElementById('saveActionSheet').classList.add('visible');
+}
+
+function closeSaveSheet() {
+  pendingSaveId = null;
+  document.getElementById('saveActionSheet').classList.remove('visible');
+  document.body.classList.remove('action-sheet-open');
+  document.body.style.top = '';
+  window.scrollTo(0, actionSheetScrollY);
+}
+
+document.getElementById('saveToFilesBtn').onclick = () => {
+  const id = pendingSaveId;
+  closeSaveSheet();
+  if (id) downloadFile(id);
+};
+
+document.getElementById('shareFileBtn').onclick = async () => {
+  const id = pendingSaveId;
+  closeSaveSheet();
+  if (!id) return;
+
+  const d = state.downloads.get(id);
+  if (!d || !d.filename) return;
+
+  // Try Web Share API with file
+  if (navigator.share && navigator.canShare) {
+    const filesize = d.filesize || 0;
+    if (filesize > 0 && filesize < 100 * 1024 * 1024) {
+      try {
+        const resp = await apiFetch('/api/downloads/' + id + '/file');
+        if (resp.ok) {
+          const blob = await resp.blob();
+          const file = new File([blob], d.filename, { type: blob.type });
+          if (navigator.canShare({ files: [file] })) {
+            await navigator.share({ files: [file], title: d.title || d.filename });
+            return;
+          }
+        }
+      } catch (e) {
+        alert('Could not share file. Try saving instead.');
+      }
+    } else {
+      alert('File too large to share directly. Use "Save to Files" instead.');
+    }
+  }
+};
+
+document.getElementById('saveActionSheet').onclick = e => {
+  if (e.target === document.getElementById('saveActionSheet')) closeSaveSheet();
+};
+
+async function shareOrDownload(id) {
+  // Show action sheet for save/share options
+  showSaveSheet(id);
+}
+
+function showSwipeActions(id) {
+  // Show action sheet for swipe right
+  const d = state.downloads.get(id);
+  if (!d) return;
+
+  // Simple action: toggle share panel and scroll to it
+  if (!state.openSharePanels.has(id)) {
+    state.openSharePanels.add(id);
+    loadShareLinks(id).then(() => renderDownloads());
+  }
+  shareOrDownload(id);
+}
+
+async function stopLiveDownload(id) {
+  try {
+    const resp = await apiFetch('/api/downloads/' + id + '/stop', { method: 'POST' });
+    if (resp.status === 401) { doLogout(); return; }
+    if (!resp.ok) {
+      const err = await resp.json();
+      alert(err.detail || 'Failed to stop');
+    }
+  } catch (e) {
+    alert('Failed to stop: ' + e.message);
+  }
+}
+
+async function loadDownloads() {
+  try {
+    const resp = await apiFetch('/api/downloads');
+    if (resp.status === 401) { doLogout(); return; }
+    const data = await resp.json();
+    state.downloads.clear();
+    for (const d of data) state.downloads.set(d.id, d);
+    renderDownloads();
+  } catch (e) {
+    console.error('Failed to load downloads', e);
+  }
+}
+
+async function updateDownloadCategory(downloadId, categoryId) {
+  try {
+    await apiFetch('/api/downloads/' + downloadId, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ category_id: categoryId || null }),
+    });
+    const d = state.downloads.get(downloadId);
+    if (d) d.category_id = categoryId || null;
+  } catch (e) {
+    console.error('Failed to update category', e);
+  }
+}
+
+// ===================================================================
+// Live timer
+// ===================================================================
+function startLiveTimer() {
+  if (liveTimer) return;
+  liveTimer = setInterval(() => {
+    const hasLive = Array.from(state.downloads.values()).some(
+      d => d.is_live && d.status === 'downloading'
+    );
+    if (hasLive) {
+      document.querySelectorAll('.live-elapsed').forEach(el => {
+        const start = parseInt(el.dataset.start);
+        if (start) {
+          const elapsed = Math.floor((Date.now() - start) / 1000);
+          el.textContent = formatElapsed(elapsed);
+        }
+      });
+    }
+  }, 1000);
+}
+
+function stopLiveTimer() {
+  if (liveTimer) { clearInterval(liveTimer); liveTimer = null; }
+}
+
+function formatElapsed(secs) {
+  const h = Math.floor(secs / 3600);
+  const m = Math.floor((secs % 3600) / 60);
+  const s = secs % 60;
+  if (h > 0) return h + 'h ' + m + 'm ' + s + 's';
+  return m + 'm ' + s + 's';
+}
+
+function formatDuration(secs) {
+  if (!secs) return '';
+  const h = Math.floor(secs / 3600);
+  const m = Math.floor((secs % 3600) / 60);
+  const s = Math.floor(secs % 60);
+  if (h > 0) return h + ':' + String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
+  return m + ':' + String(s).padStart(2, '0');
+}
+
+// ===================================================================
+// Render downloads
+// ===================================================================
+function renderDownloads() {
+  const container = document.getElementById('downloadList');
+  const empty = document.getElementById('emptyState');
+
+  let items = Array.from(state.downloads.values());
+
+  // Search filter
+  if (state.searchTerm) {
+    const term = state.searchTerm.toLowerCase();
+    items = items.filter(d => {
+      const title = (d.title || d.url || '').toLowerCase();
+      return title.includes(term);
+    });
+  }
+
+  // Category filter
+  if (state.filterCategory !== null) {
+    items = items.filter(d => (d.category_id || '') === state.filterCategory);
+  }
+
+  // Sort
+  items.sort((a, b) => {
+    switch (state.sortBy) {
+      case 'date_newest':
+        return (b.created_at || '').localeCompare(a.created_at || '');
+      case 'date_oldest':
+        return (a.created_at || '').localeCompare(b.created_at || '');
+      case 'name_az':
+        return (a.title || '').localeCompare(b.title || '');
+      case 'name_za':
+        return (b.title || '').localeCompare(a.title || '');
+      case 'size_desc':
+        return (b.filesize || 0) - (a.filesize || 0);
+      case 'size_asc':
+        return (a.filesize || 0) - (b.filesize || 0);
+      default: {
+        const order = { downloading: 0, fetching_info: 0, post_processing: 0, queued: 1, failed: 2, completed: 3 };
+        const oa = order[a.status] ?? 4;
+        const ob = order[b.status] ?? 4;
+        if (oa !== ob) return oa - ob;
+        return (b.created_at || '').localeCompare(a.created_at || '');
+      }
+    }
+  });
+
+  if (items.length === 0) {
+    empty.style.display = 'block';
+    empty.textContent = state.searchTerm || state.filterCategory !== null
+      ? 'No matching downloads found.'
+      : 'No downloads yet. Paste a URL above to get started.';
+    container.querySelectorAll('.swipe-container, .download-card').forEach(el => el.remove());
+    return;
+  }
+  empty.style.display = 'none';
+
+  const catMap = {};
+  state.categories.forEach(c => { catMap[c.id] = c.name; });
+
+  const canShare = !!(navigator.share && navigator.canShare);
+
+  const html = items.map(d => {
+    const title = d.title || d.url || 'Unknown';
+    const statusLabel = (d.status || 'queued').replace('_', ' ');
+    const progress = d.progress || 0;
+    const isActive = ['downloading', 'fetching_info', 'post_processing', 'queued'].includes(d.status);
+    const isFailed = d.status === 'failed';
+    const isCompleted = d.status === 'completed';
+    const isLive = d.is_live && d.status === 'downloading';
+    // Thumbnail - use local caching endpoint for faster loading
+    let thumbHtml = '';
+    const thumbUrl = d.thumbnail_url ? '/api/downloads/' + d.id + '/thumbnail' : null;
+    if (thumbUrl) {
+      if (isCompleted) {
+        thumbHtml = '<div class="dl-thumb-wrap completed" onclick="playVideo(\'' + d.id + '\')">' +
+          '<img class="dl-thumb" src="' + thumbUrl + '" alt="" onerror="this.parentElement.innerHTML=\'<div class=dl-no-thumb>&#9654;</div>\'">' +
+          '<div class="dl-thumb-play"><svg viewBox="0 0 24 24"><polygon points="5,3 19,12 5,21"/></svg></div>' +
+          '</div>';
+      } else {
+        thumbHtml = '<div class="dl-thumb-wrap">' +
+          '<img class="dl-thumb" src="' + thumbUrl + '" alt="" onerror="this.parentElement.innerHTML=\'<div class=dl-no-thumb>&#9654;</div>\'">' +
+          '</div>';
+      }
+    } else {
+      if (isCompleted) {
+        thumbHtml = '<div class="dl-thumb-wrap completed" onclick="playVideo(\'' + d.id + '\')">' +
+          '<div class="dl-no-thumb">&#9654;</div>' +
+          '<div class="dl-thumb-play"><svg viewBox="0 0 24 24"><polygon points="5,3 19,12 5,21"/></svg></div>' +
+          '</div>';
+      } else {
+        thumbHtml = '<div class="dl-no-thumb">&#9654;</div>';
+      }
+    }
+
+    // Meta line
+    let metaLine = '';
+    if (isCompleted) {
+      const parts = [];
+      if (d.quality_label) parts.push(d.quality_label);
+      if (d.filesize) parts.push(formatBytes(d.filesize));
+      if (d.duration) parts.push(formatDuration(d.duration));
+      metaLine = parts.join(' &middot; ');
+    } else if (isActive && !isLive) {
+      const parts = [];
+      if (d.speed) parts.push(d.speed);
+      if (d.eta) parts.push('ETA ' + d.eta);
+      metaLine = parts.join(' &middot; ');
+    }
+
+    // Badges
+    let badges = '';
+    if (isLive) {
+      badges += '<span class="live-badge"><span class="live-dot"></span>LIVE</span>';
+    }
+    if (d.category_id && catMap[d.category_id]) {
+      badges += '<span class="category-badge">' + escapeHtml(catMap[d.category_id]) + '</span>';
+    }
+    badges += '<span class="dl-status ' + d.status + '">' + statusLabel + '</span>';
+
+    // Progress section (only for active non-live)
+    let progressSection = '';
+    if (isActive && !isLive) {
+      progressSection = '<div class="dl-progress-section">' +
+        '<div class="dl-progress-bar"><div class="dl-progress-fill" style="width:' + progress + '%"></div></div>' +
+        '<div class="dl-progress-info">' +
+          '<span>' + (d.speed || '') + '</span>' +
+          '<span>' + progress.toFixed(1) + '%</span>' +
+          '<span>' + (d.eta ? 'ETA ' + d.eta : '') + '</span>' +
+        '</div>' +
+      '</div>';
+    }
+
+    // Live info section
+    let liveSection = '';
+    if (isLive) {
+      const startMs = d.created_at ? new Date(d.created_at).getTime() : Date.now();
+      const elapsed = Math.floor((Date.now() - startMs) / 1000);
+      liveSection = '<div class="dl-live-info">' +
+        (d.speed ? '<span>' + escapeHtml(d.speed) + '</span>' : '') +
+        (d.downloaded_bytes ? '<span>' + formatBytes(d.downloaded_bytes) + '</span>' : '') +
+        '<span class="live-elapsed" data-start="' + startMs + '">' + formatElapsed(elapsed) + '</span>' +
+      '</div>';
+    }
+
+    // Actions — simplified since swipe gestures handle save/delete for completed
+    let actions = '';
+    if (isCompleted) {
+      // Small share link toggle (swipe handles save/delete)
+      actions += '<button class="btn btn-ghost btn-sm" onclick="toggleSharePanel(\'' + d.id + '\')">Share Link</button>';
+    }
+    if (isLive) {
+      actions += '<button class="btn btn-danger btn-sm" onclick="stopLiveDownload(\'' + d.id + '\')">Stop</button>';
+    }
+    if (isFailed) {
+      actions += '<button class="btn btn-ghost btn-sm" onclick="retryDownload(\'' + d.id + '\')">Retry</button>';
+      actions += '<button class="btn btn-danger btn-sm" onclick="deleteDownload(\'' + d.id + '\')">Delete</button>';
+    }
+
+    // Category selector for completed
+    let catRow = '';
+    if (isCompleted) {
+      catRow = '<div class="dl-category-row"><select onchange="updateDownloadCategory(\'' + d.id + '\', this.value)">' +
+        '<option value="">No category</option>' +
+        state.categories.map(c =>
+          '<option value="' + c.id + '"' + (d.category_id === c.id ? ' selected' : '') + '>' + escapeHtml(c.name) + '</option>'
+        ).join('') +
+        '</select></div>';
+    }
+
+    // Share panel
+    let sharePanel = '';
+    if (state.openSharePanels.has(d.id)) {
+      const links = state.shareLinks.get(d.id) || [];
+      sharePanel = '<div class="share-panel">' +
+        '<div class="share-panel-title">Share Links</div>' +
+        '<div class="share-form">' +
+          '<div class="share-form-row">' +
+            '<input type="checkbox" id="sharePw_' + d.id + '"><label for="sharePw_' + d.id + '">Password</label>' +
+            '<input type="password" id="sharePwVal_' + d.id + '" placeholder="Password" style="display:none;">' +
+          '</div>' +
+          '<div class="share-form-row">' +
+            '<label>Expires:</label>' +
+            '<select id="shareExp_' + d.id + '">' +
+              '<option value="">Never</option>' +
+              '<option value="3600">1 hour</option>' +
+              '<option value="86400">24 hours</option>' +
+              '<option value="604800">7 days</option>' +
+            '</select>' +
+          '</div>' +
+          '<button class="btn btn-primary btn-sm" onclick="createShareLink(\'' + d.id + '\')">Create Link</button>' +
+        '</div>' +
+        (links.length > 0 ? '<div style="border-top:1px solid #2a2a2a;padding-top:8px;">' +
+          links.map(l => {
+            const meta = [];
+            if (l.has_password) meta.push('password');
+            if (l.expires_at) {
+              const exp = new Date(l.expires_at);
+              const isExpired = exp < new Date();
+              meta.push(isExpired ? 'expired' : 'expires ' + exp.toLocaleDateString());
+            }
+            return '<div class="share-link-row">' +
+              '<span class="share-link-url" title="' + escapeAttr(l.url) + '">' + escapeHtml(l.url) + '</span>' +
+              (meta.length ? '<span class="share-link-meta">' + meta.join(', ') + '</span>' : '') +
+              '<button class="copy-btn" onclick="copyToClipboard(\'' + escapeAttr(l.url) + '\', this)">Copy</button>' +
+              '<button class="delete-link-btn" onclick="deleteShareLink(\'' + l.id + '\', \'' + d.id + '\')">&times;</button>' +
+            '</div>';
+          }).join('') +
+        '</div>' : '') +
+      '</div>';
+    }
+
+    const cardContent = '<div class="download-card" data-id="' + d.id + '">' +
+      '<div class="dl-main">' +
+        thumbHtml +
+        '<div class="dl-body">' +
+          '<div class="dl-title" title="' + escapeAttr(title) + '">' + escapeHtml(title) + '</div>' +
+          (metaLine ? '<div class="dl-meta-line">' + metaLine + '</div>' : '') +
+          '<div class="dl-badges">' + badges + '</div>' +
+        '</div>' +
+      '</div>' +
+      progressSection +
+      liveSection +
+      (isFailed && d.error_message ? '<div class="dl-error">' + escapeHtml(d.error_message) + '</div>' : '') +
+      (actions ? '<div class="dl-actions">' + actions + '</div>' : '') +
+      catRow +
+      sharePanel +
+    '</div>';
+
+    // Wrap swipeable cards (completed only — failed has buttons)
+    if (isCompleted) {
+      return '<div class="swipe-container" data-id="' + d.id + '">' +
+        '<div class="swipe-action swipe-action-left">Save</div>' +
+        '<div class="swipe-action swipe-action-right">Delete</div>' +
+        '<div class="swipe-card-inner">' + cardContent + '</div>' +
+      '</div>';
+    }
+    return cardContent;
+  }).join('');
+
+  container.querySelectorAll('.swipe-container, .download-card').forEach(el => el.remove());
+  container.insertAdjacentHTML('beforeend', html);
+
+  // Wire up password checkbox toggles
+  items.forEach(d => {
+    if (state.openSharePanels.has(d.id)) {
+      const cb = document.getElementById('sharePw_' + d.id);
+      const pw = document.getElementById('sharePwVal_' + d.id);
+      if (cb && pw) {
+        cb.addEventListener('change', () => {
+          pw.style.display = cb.checked ? '' : 'none';
+        });
+      }
+    }
+  });
+
+  // Wire up swipe gestures
+  initSwipeGestures();
+}
+
+// ===================================================================
+// Swipe gestures
+// ===================================================================
+function initSwipeGestures() {
+  document.querySelectorAll('.swipe-container').forEach(container => {
+    const inner = container.querySelector('.swipe-card-inner');
+    if (!inner || inner._swipeInit) return;
+    inner._swipeInit = true;
+
+    let startX = 0, startY = 0, deltaX = 0, isDragging = false, isScrolling = null;
+
+    inner.addEventListener('touchstart', e => {
+      startX = e.touches[0].clientX;
+      startY = e.touches[0].clientY;
+      deltaX = 0;
+      isDragging = true;
+      isScrolling = null;
+      inner.classList.add('swiping');
+    }, { passive: true });
+
+    inner.addEventListener('touchmove', e => {
+      if (!isDragging) return;
+      const dx = e.touches[0].clientX - startX;
+      const dy = e.touches[0].clientY - startY;
+
+      // Determine if scrolling or swiping (10px dead zone)
+      if (isScrolling === null) {
+        if (Math.abs(dy) > 10) { isScrolling = true; isDragging = false; inner.classList.remove('swiping'); return; }
+        if (Math.abs(dx) > 10) { isScrolling = false; }
+        else return;
+      }
+      if (isScrolling) return;
+
+      deltaX = dx;
+      inner.style.transform = 'translateX(' + deltaX + 'px)';
+    }, { passive: true });
+
+    inner.addEventListener('touchend', () => {
+      if (!isDragging && isScrolling !== false) {
+        inner.classList.remove('swiping');
+        inner.style.transform = '';
+        return;
+      }
+      isDragging = false;
+      inner.classList.remove('swiping');
+
+      const id = container.dataset.id;
+      if (deltaX > 80) {
+        // Swipe right — save/share
+        inner.style.transform = '';
+        shareOrDownload(id);
+      } else if (deltaX < -80) {
+        // Swipe left — delete
+        inner.style.transform = '';
+        deleteDownload(id);
+      } else {
+        inner.style.transform = '';
+      }
+    });
+  });
+}
+
+// ===================================================================
+// Video player - use native player for best iOS experience
+// ===================================================================
+function playVideo(id) {
+  const d = state.downloads.get(id);
+  if (!d || d.status !== 'completed') return;
+
+  // Set flag to prevent PIN lock when returning from video (persists across navigation)
+  sessionStorage.setItem(VIDEO_NAV_KEY, Date.now().toString());
+
+  // Navigate to video URL - native player handles it, back button returns
+  const videoUrl = '/api/downloads/' + id + '/stream?token=' + encodeURIComponent(authToken);
+  window.location.href = videoUrl;
+}
+
+
+// ===================================================================
+// Search + Sort + Filter
+// ===================================================================
+document.getElementById('searchBar').addEventListener('input', e => {
+  state.searchTerm = e.target.value;
+  renderDownloads();
+});
+
+document.getElementById('sortBar').addEventListener('change', e => {
+  state.sortBy = e.target.value;
+  renderDownloads();
+});
+
+function renderFilterChips() {
+  const bar = document.getElementById('filterBar');
+  if (state.categories.length === 0) {
+    bar.innerHTML = '';
+    return;
+  }
+  bar.innerHTML =
+    '<span class="filter-chip' + (state.filterCategory === null ? ' active' : '') + '" onclick="setFilter(null)">All</span>' +
+    '<span class="filter-chip' + (state.filterCategory === '' ? ' active' : '') + '" onclick="setFilter(\'\')">Uncategorized</span>' +
+    state.categories.map(c =>
+      '<span class="filter-chip' + (state.filterCategory === c.id ? ' active' : '') + '" onclick="setFilter(\'' + c.id + '\')">' + escapeHtml(c.name) + '</span>'
+    ).join('');
+}
+
+function setFilter(categoryId) {
+  state.filterCategory = categoryId;
+  renderFilterChips();
+  renderDownloads();
+}
+
+// ===================================================================
+// Categories
+// ===================================================================
+async function loadCategories() {
+  try {
+    const resp = await apiFetch('/api/categories');
+    if (resp.status === 401) return;
+    state.categories = await resp.json();
+    renderFilterChips();
+    updateFormatCategorySelect();
+  } catch (e) {
+    console.error('Failed to load categories', e);
+  }
+}
+
+async function createCategory() {
+  const input = document.getElementById('newCategoryName');
+  const name = input.value.trim();
+  if (!name) return;
+
+  try {
+    const resp = await apiFetch('/api/categories', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name }),
+    });
+    if (!resp.ok) {
+      const err = await resp.json();
+      alert(err.detail || 'Failed to create category');
+      return;
+    }
+    input.value = '';
+    await loadCategories();
+    renderCategoryManager();
+    renderDownloads();
+  } catch (e) {
+    alert('Failed to create category: ' + e.message);
+  }
+}
+
+async function renameCategory(id) {
+  const name = prompt('New name:');
+  if (!name || !name.trim()) return;
+  try {
+    const resp = await apiFetch('/api/categories/' + id, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: name.trim() }),
+    });
+    if (!resp.ok) {
+      const err = await resp.json();
+      alert(err.detail || 'Failed to rename');
+      return;
+    }
+    await loadCategories();
+    renderCategoryManager();
+    renderDownloads();
+  } catch (e) {
+    alert('Failed to rename: ' + e.message);
+  }
+}
+
+async function deleteCategory(id) {
+  if (!confirm('Delete this category? Downloads will become uncategorized.')) return;
+  try {
+    await apiFetch('/api/categories/' + id, { method: 'DELETE' });
+    if (state.filterCategory === id) state.filterCategory = null;
+    await loadCategories();
+    renderCategoryManager();
+    await loadDownloads();
+  } catch (e) {
+    alert('Failed to delete: ' + e.message);
+  }
+}
+
+function openCategoryManager() {
+  document.getElementById('categoryModal').classList.add('visible');
+  renderCategoryManager();
+}
+
+function closeCategoryManager() {
+  document.getElementById('categoryModal').classList.remove('visible');
+}
+
+function renderCategoryManager() {
+  const list = document.getElementById('categoryList');
+  if (state.categories.length === 0) {
+    list.innerHTML = '<div style="color:#525252;font-size:13px;padding:8px 0;">No categories yet.</div>';
+    return;
+  }
+  list.innerHTML = state.categories.map(c =>
+    '<div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid #2a2a2a;">' +
+      '<span style="flex:1;font-size:14px;">' + escapeHtml(c.name) + '</span>' +
+      '<button class="btn btn-ghost btn-sm" onclick="renameCategory(\'' + c.id + '\')">Rename</button>' +
+      '<button class="btn btn-danger btn-sm" onclick="deleteCategory(\'' + c.id + '\')">Delete</button>' +
+    '</div>'
+  ).join('');
+}
+
+document.getElementById('newCategoryName').addEventListener('keydown', e => {
+  if (e.key === 'Enter') createCategory();
+});
+
+// ===================================================================
+// Share links
+// ===================================================================
+async function toggleSharePanel(downloadId) {
+  if (state.openSharePanels.has(downloadId)) {
+    state.openSharePanels.delete(downloadId);
+  } else {
+    state.openSharePanels.add(downloadId);
+    await loadShareLinks(downloadId);
+  }
+  renderDownloads();
+}
+
+async function loadShareLinks(downloadId) {
+  try {
+    const resp = await apiFetch('/api/downloads/' + downloadId + '/shares');
+    if (resp.ok) {
+      state.shareLinks.set(downloadId, await resp.json());
+    }
+  } catch (e) {
+    console.error('Failed to load share links', e);
+  }
+}
+
+async function createShareLink(downloadId) {
+  const pwCb = document.getElementById('sharePw_' + downloadId);
+  const pwInput = document.getElementById('sharePwVal_' + downloadId);
+  const expSelect = document.getElementById('shareExp_' + downloadId);
+
+  const password = pwCb && pwCb.checked ? (pwInput ? pwInput.value : null) : null;
+  const expSeconds = expSelect ? parseInt(expSelect.value) || 0 : 0;
+  let expiresAt = null;
+  if (expSeconds > 0) {
+    expiresAt = new Date(Date.now() + expSeconds * 1000).toISOString();
+  }
+
+  try {
+    const resp = await apiFetch('/api/downloads/' + downloadId + '/share', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password, expires_at: expiresAt }),
+    });
+    if (resp.ok) {
+      await loadShareLinks(downloadId);
+      renderDownloads();
+    } else {
+      const err = await resp.json();
+      alert(err.detail || 'Failed to create share link');
+    }
+  } catch (e) {
+    alert('Failed to create share link: ' + e.message);
+  }
+}
+
+async function deleteShareLink(linkId, downloadId) {
+  try {
+    await apiFetch('/api/shares/' + linkId, { method: 'DELETE' });
+    await loadShareLinks(downloadId);
+    renderDownloads();
+  } catch (e) {
+    alert('Failed to delete share link: ' + e.message);
+  }
+}
+
+function copyToClipboard(text, btn) {
+  // Try modern clipboard API first
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(() => {
+      const orig = btn.textContent;
+      btn.textContent = 'Copied!';
+      setTimeout(() => { btn.textContent = orig; }, 1500);
+    }).catch(() => {
+      fallbackCopy(text, btn);
+    });
+  } else {
+    fallbackCopy(text, btn);
+  }
+}
+
+function fallbackCopy(text, btn) {
+  // Fallback for older browsers or insecure context
+  const textarea = document.createElement('textarea');
+  textarea.value = text;
+  textarea.style.position = 'fixed';
+  textarea.style.left = '-9999px';
+  textarea.style.top = '0';
+  textarea.setAttribute('readonly', '');
+  document.body.appendChild(textarea);
+  textarea.select();
+  textarea.setSelectionRange(0, 99999); // For mobile
+  try {
+    const success = document.execCommand('copy');
+    if (success) {
+      const orig = btn.textContent;
+      btn.textContent = 'Copied!';
+      setTimeout(() => { btn.textContent = orig; }, 1500);
+    } else {
+      alert('Failed to copy');
+    }
+  } catch (e) {
+    alert('Failed to copy to clipboard');
+  }
+  document.body.removeChild(textarea);
+}
+
+// ===================================================================
+// Settings — tabbed
+// ===================================================================
+function switchSettingsTab(tab) {
+  document.querySelectorAll('.settings-tab-content').forEach(t => t.classList.remove('active'));
+  document.getElementById('settingsTab-' + tab).classList.add('active');
+  document.querySelectorAll('#settingsTabs .filter-chip').forEach(c => {
+    c.classList.toggle('active', c.dataset.tab === tab);
+  });
+
+  // Lazy load VPN data
+  if (tab === 'vpn' && !state.settingsVpnLoaded) {
+    loadVpnSettings();
+  }
+
+  // Initialize security settings UI
+  if (tab === 'security') {
+    initSecuritySettings();
+  }
+}
+
+async function openSettings() {
+  document.getElementById('settingsModal').classList.add('visible');
+  switchSettingsTab('general');
+  state.settingsVpnLoaded = false;
+
+  try {
+    const resp = await apiFetch('/api/settings');
+    if (resp.ok) {
+      const data = await resp.json();
+      document.getElementById('settingsPublicUrl').value = data.public_url || '';
+    }
+  } catch (e) {}
+}
+
+function closeSettings() {
+  document.getElementById('settingsModal').classList.remove('visible');
+}
+
+async function saveGeneralSettings() {
+  const publicUrl = document.getElementById('settingsPublicUrl').value.trim();
+  try {
+    const resp = await apiFetch('/api/settings', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ public_url: publicUrl }),
+    });
+    if (resp.ok) {
+      showTabAlert('generalAlert', 'Settings saved.', 'success');
+    } else {
+      const err = await resp.json();
+      showTabAlert('generalAlert', err.detail || 'Failed to save.', 'error');
+    }
+  } catch (e) {
+    showTabAlert('generalAlert', 'Network error.', 'error');
+  }
+}
+
+async function saveAccountSettings() {
+  const currentPw = document.getElementById('settingsCurrentPassword').value;
+  const newUsername = document.getElementById('settingsNewUsername').value.trim() || null;
+  const newPassword = document.getElementById('settingsNewPassword').value || null;
+
+  if (!currentPw) {
+    showTabAlert('accountAlert', 'Current password is required.', 'error');
+    return;
+  }
+  if (!newUsername && !newPassword) {
+    showTabAlert('accountAlert', 'Enter a new username or password.', 'error');
+    return;
+  }
+
+  try {
+    const resp = await apiFetch('/api/settings/credentials', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ current_password: currentPw, new_username: newUsername, new_password: newPassword }),
+    });
+    if (resp.ok) {
+      showTabAlert('accountAlert', 'Credentials updated.', 'success');
+      document.getElementById('settingsCurrentPassword').value = '';
+      document.getElementById('settingsNewUsername').value = '';
+      document.getElementById('settingsNewPassword').value = '';
+    } else {
+      const err = await resp.json();
+      showTabAlert('accountAlert', err.detail || 'Failed to update.', 'error');
+    }
+  } catch (e) {
+    showTabAlert('accountAlert', 'Network error.', 'error');
+  }
+}
+
+async function loadVpnSettings() {
+  try {
+    const resp = await apiFetch('/api/settings/vpn');
+    if (!resp.ok) return;
+    const data = await resp.json();
+
+    document.getElementById('settingsHeadscaleUrl').value = data.headscale_url || '';
+    document.getElementById('settingsAuthkey').value = '';
+
+    const list = document.getElementById('settingsExitNodeList');
+    const nodes = data.exit_nodes || [];
+    state.settingsSelectedExitNode = data.exit_node || null;
+    state.settingsVpnLoaded = true;
+
+    if (nodes.length === 0) {
+      list.innerHTML = '<div class="node-empty">No exit nodes found.</div>';
+      return;
+    }
+
+    list.innerHTML = nodes.map(n => `
+      <label class="node-option${n.ip === state.settingsSelectedExitNode ? ' selected' : ''}" data-ip="${n.ip}">
+        <input type="radio" name="settingsExitNode" value="${n.ip}" ${n.ip === state.settingsSelectedExitNode ? 'checked' : ''}>
+        <div>
+          <div class="node-name">${escapeHtml(n.name)}</div>
+          <div class="node-ip">${escapeHtml(n.ip)}</div>
+        </div>
+        <span class="node-status ${n.online ? 'online' : 'offline'}">${n.online ? 'online' : 'offline'}</span>
+      </label>
+    `).join('');
+
+    list.querySelectorAll('.node-option').forEach(el => {
+      el.addEventListener('click', () => {
+        list.querySelectorAll('.node-option').forEach(o => o.classList.remove('selected'));
+        el.classList.add('selected');
+        el.querySelector('input[type="radio"]').checked = true;
+        state.settingsSelectedExitNode = el.dataset.ip;
+      });
+    });
+  } catch (e) {
+    console.error('Failed to load VPN settings', e);
+  }
+}
+
+async function saveVpnSettings() {
+  const headscaleUrl = document.getElementById('settingsHeadscaleUrl').value.trim();
+  const authkey = document.getElementById('settingsAuthkey').value.trim();
+  const exitNode = state.settingsSelectedExitNode;
+
+  if (!headscaleUrl) {
+    showTabAlert('vpnAlert', 'Headscale URL is required.', 'error');
+    return;
+  }
+  if (!authkey) {
+    showTabAlert('vpnAlert', 'Auth key is required for reconnection.', 'error');
+    return;
+  }
+
+  try {
+    const resp = await apiFetch('/api/settings/vpn', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ headscale_url: headscaleUrl, headscale_authkey: authkey, exit_node: exitNode }),
+    });
+    if (resp.ok) {
+      showTabAlert('vpnAlert', 'VPN reconnected successfully.', 'success');
+      loadVPN();
+      refreshExternalIp();
+    } else {
+      const err = await resp.json();
+      showTabAlert('vpnAlert', err.detail || 'Failed to reconnect VPN.', 'error');
+    }
+  } catch (e) {
+    showTabAlert('vpnAlert', 'Network error.', 'error');
+  }
+}
+
+async function changeExitNode() {
+  const exitNode = state.settingsSelectedExitNode;
+  if (!exitNode) {
+    showTabAlert('vpnAlert', 'Please select an exit node.', 'error');
+    return;
+  }
+
+  try {
+    const resp = await apiFetch('/api/vpn/exit-node', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ exit_node: exitNode }),
+    });
+    if (resp.ok) {
+      showTabAlert('vpnAlert', 'Exit node changed successfully.', 'success');
+      loadVPN();
+      refreshExternalIp();
+    } else {
+      const err = await resp.json();
+      showTabAlert('vpnAlert', err.detail || 'Failed to change exit node.', 'error');
+    }
+  } catch (e) {
+    showTabAlert('vpnAlert', 'Network error.', 'error');
+  }
+}
+
+async function disconnectVpn() {
+  if (!confirm('Disconnect from VPN? Downloads will not use the exit node.')) return;
+
+  try {
+    const resp = await apiFetch('/api/vpn/disconnect', { method: 'POST' });
+    if (resp.ok) {
+      showTabAlert('vpnAlert', 'VPN disconnected.', 'success');
+      loadVPN();
+      refreshExternalIp();
+    } else {
+      const err = await resp.json();
+      showTabAlert('vpnAlert', err.detail || 'Failed to disconnect.', 'error');
+    }
+  } catch (e) {
+    showTabAlert('vpnAlert', 'Network error.', 'error');
+  }
+}
+
+// ===================================================================
+// VPN
+// ===================================================================
+async function loadVPN() {
+  try {
+    const resp = await apiFetch('/api/vpn/status');
+    if (resp.status === 401) return;
+    state.vpn = await resp.json();
+    renderVPN();
+  } catch (e) {
+    console.error('Failed to load VPN status', e);
+  }
+}
+
+function renderVPN() {
+  const dot = document.getElementById('vpnDot');
+  const online = state.vpn.connected && state.vpn.exit_node_online;
+  dot.className = 'vpn-dot' + (online ? ' online' : ' offline');
+}
+
+let ipRefreshInterval = null;
+
+async function refreshExternalIp() {
+  const el = document.getElementById('externalIp');
+  if (!el) return;
+  try {
+    const resp = await apiFetch('/api/vpn/ip');
+    if (resp.ok) {
+      const data = await resp.json();
+      el.textContent = data.ip || '--';
+    }
+  } catch (e) {
+    el.textContent = '--';
+  }
+}
+
+function startIpRefresh() {
+  refreshExternalIp();
+  if (ipRefreshInterval) clearInterval(ipRefreshInterval);
+  ipRefreshInterval = setInterval(refreshExternalIp, 60000); // every minute
+}
+
+function stopIpRefresh() {
+  if (ipRefreshInterval) {
+    clearInterval(ipRefreshInterval);
+    ipRefreshInterval = null;
+  }
+}
+
+// ===================================================================
+// Helpers
+// ===================================================================
+function formatBytes(bytes) {
+  if (!bytes) return '';
+  const units = ['B', 'KB', 'MB', 'GB'];
+  let i = 0, val = bytes;
+  while (val >= 1024 && i < units.length - 1) { val /= 1024; i++; }
+  return val.toFixed(i > 0 ? 1 : 0) + ' ' + units[i];
+}
+
+function escapeHtml(str) {
+  const div = document.createElement('div');
+  div.textContent = str;
+  return div.innerHTML;
+}
+
+function escapeAttr(str) {
+  return str.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/'/g, '&#39;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+// Enter key to fetch on main screen
+document.getElementById('urlInput').addEventListener('keydown', e => {
+  if (e.key === 'Enter') fetchFormats();
+});
+
+// ===================================================================
+// PIN Lock
+// ===================================================================
+const PIN_STORAGE_KEY = 'media-dl-pin-hash';
+const BIOMETRIC_KEY = 'media-dl-biometric-enabled';
+const BIOMETRIC_CRED_KEY = 'media-dl-biometric-cred';
+const VIDEO_NAV_KEY = 'media-dl-video-nav';
+let pinEntryBuffer = '';
+let isLocked = false;
+let lastVisibleTime = Date.now();
+
+function simplePinHash(pin) {
+  let hash = 0;
+  const str = 'pin-salt-v1-' + pin;
+  for (let i = 0; i < str.length; i++) {
+    const char = str.charCodeAt(i);
+    hash = ((hash << 5) - hash) + char;
+    hash = hash & hash;
+  }
+  return hash.toString(36);
+}
+
+function isPinEnabled() {
+  return !!localStorage.getItem(PIN_STORAGE_KEY);
+}
+
+function isBiometricEnabled() {
+  return localStorage.getItem(BIOMETRIC_KEY) === 'true' && !!localStorage.getItem(BIOMETRIC_CRED_KEY);
+}
+
+function lockApp() {
+  if (!isPinEnabled() || isLocked) return;
+  isLocked = true;
+  pinEntryBuffer = '';
+  updatePinDots();
+  document.getElementById('lockError').textContent = '';
+  document.getElementById('lockScreen').classList.add('visible');
+
+  const biometricKey = document.getElementById('biometricKey');
+  if (isBiometricEnabled()) {
+    biometricKey.style.display = 'flex';
+    setTimeout(() => attemptBiometricUnlock(), 300);
+  } else {
+    biometricKey.style.display = 'none';
+  }
+}
+
+function unlockApp() {
+  isLocked = false;
+  pinEntryBuffer = '';
+  document.getElementById('lockScreen').classList.remove('visible');
+  lastVisibleTime = Date.now();
+}
+
+function updatePinDots() {
+  const dots = document.querySelectorAll('#pinDots .pin-dot');
+  dots.forEach((dot, i) => {
+    dot.classList.toggle('filled', i < pinEntryBuffer.length);
+    dot.classList.remove('error');
+  });
+}
+
+function showPinError() {
+  const dots = document.querySelectorAll('#pinDots .pin-dot');
+  dots.forEach(dot => dot.classList.add('error'));
+  document.getElementById('lockError').textContent = 'Incorrect PIN';
+  pinEntryBuffer = '';
+  setTimeout(() => {
+    updatePinDots();
+    document.getElementById('lockError').textContent = '';
+  }, 1000);
+}
+
+function verifyPin(pin) {
+  const storedHash = localStorage.getItem(PIN_STORAGE_KEY);
+  return storedHash === simplePinHash(pin);
+}
+
+function handlePinKeyPress(key) {
+  if (key === 'delete') {
+    pinEntryBuffer = pinEntryBuffer.slice(0, -1);
+    updatePinDots();
+  } else if (key === 'biometric') {
+    attemptBiometricUnlock();
+  } else if (/^[0-9]$/.test(key)) {
+    if (pinEntryBuffer.length < 4) {
+      pinEntryBuffer += key;
+      updatePinDots();
+      if (pinEntryBuffer.length === 4) {
+        setTimeout(() => {
+          if (verifyPin(pinEntryBuffer)) {
+            unlockApp();
+          } else {
+            showPinError();
+          }
+        }, 150);
+      }
+    }
+  }
+}
+
+document.getElementById('pinKeypad').addEventListener('click', e => {
+  const key = e.target.closest('.pin-key');
+  if (key) {
+    handlePinKeyPress(key.dataset.key);
+  }
+});
+
+async function attemptBiometricUnlock() {
+  if (!isBiometricEnabled()) return;
+
+  try {
+    const credId = localStorage.getItem(BIOMETRIC_CRED_KEY);
+    if (!credId) return;
+
+    const challenge = new Uint8Array(32);
+    crypto.getRandomValues(challenge);
+
+    const credential = await navigator.credentials.get({
+      publicKey: {
+        challenge: challenge,
+        allowCredentials: [{
+          id: Uint8Array.from(atob(credId), c => c.charCodeAt(0)),
+          type: 'public-key',
+          transports: ['internal']
+        }],
+        userVerification: 'required',
+        timeout: 60000
+      }
+    });
+
+    if (credential) {
+      unlockApp();
+    }
+  } catch (e) {
+    console.log('Biometric auth failed or cancelled:', e.name);
+  }
+}
+
+// Check if returning from video playback (within 5 minutes)
+function isReturningFromVideo() {
+  const navTime = sessionStorage.getItem(VIDEO_NAV_KEY);
+  if (!navTime) return false;
+  const elapsed = Date.now() - parseInt(navTime, 10);
+  if (elapsed < 300000) { // 5 minutes
+    sessionStorage.removeItem(VIDEO_NAV_KEY);
+    return true;
+  }
+  sessionStorage.removeItem(VIDEO_NAV_KEY);
+  return false;
+}
+
+// Visibility change detection for auto-lock
+document.addEventListener('visibilitychange', () => {
+  // Refresh IP when app becomes visible
+  if (document.visibilityState === 'visible' && authToken) {
+    refreshExternalIp();
+    loadVPN();
+  }
+
+  if (!isPinEnabled()) return;
+
+  if (document.visibilityState === 'hidden') {
+    lastVisibleTime = Date.now();
+  } else if (document.visibilityState === 'visible') {
+    // Skip lock if returning from video playback
+    if (isReturningFromVideo()) {
+      lastVisibleTime = Date.now();
+      return;
+    }
+    const elapsed = Date.now() - lastVisibleTime;
+    if (elapsed > 1000 && !isLocked) {
+      lockApp();
+    }
+  }
+});
+
+// Page focus for iOS PWA
+window.addEventListener('pageshow', (e) => {
+  if (!isPinEnabled()) return;
+  // Skip lock if returning from video playback
+  if (isReturningFromVideo()) {
+    lastVisibleTime = Date.now();
+    return;
+  }
+  if (e.persisted || (Date.now() - lastVisibleTime > 1000)) {
+    lockApp();
+  }
+});
+
+// Security settings UI
+async function initSecuritySettings() {
+  const pinEnabled = isPinEnabled();
+  document.getElementById('pinEnabled').checked = pinEnabled;
+  document.getElementById('pinSetupGroup').style.display = 'none';
+  document.getElementById('changePinGroup').style.display = pinEnabled ? 'block' : 'none';
+  document.getElementById('biometricEnabled').checked = isBiometricEnabled();
+
+  // Check if biometrics are available
+  let biometricsAvailable = false;
+  if (window.isSecureContext && window.PublicKeyCredential) {
+    try {
+      biometricsAvailable = await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
+    } catch (e) {}
+  }
+  document.getElementById('biometricGroup').style.display = (pinEnabled && biometricsAvailable) ? 'block' : 'none';
+}
+
+function togglePinLock() {
+  const enabled = document.getElementById('pinEnabled').checked;
+  if (enabled) {
+    document.getElementById('pinSetupGroup').style.display = 'block';
+    document.getElementById('pinSetupInput').value = '';
+    document.getElementById('pinConfirmInput').value = '';
+    document.getElementById('pinSetupInput').focus();
+  } else {
+    removePinLock();
+  }
+}
+
+function cancelPinSetup() {
+  document.getElementById('pinEnabled').checked = isPinEnabled();
+  document.getElementById('pinSetupGroup').style.display = 'none';
+  document.getElementById('pinSetupInput').value = '';
+  document.getElementById('pinConfirmInput').value = '';
+}
+
+async function savePinSettings() {
+  const pin = document.getElementById('pinSetupInput').value;
+  const confirm = document.getElementById('pinConfirmInput').value;
+
+  if (!/^\d{4}$/.test(pin)) {
+    showTabAlert('securityAlert', 'PIN must be exactly 4 digits.', 'error');
+    return;
+  }
+  if (pin !== confirm) {
+    showTabAlert('securityAlert', 'PINs do not match.', 'error');
+    return;
+  }
+
+  localStorage.setItem(PIN_STORAGE_KEY, simplePinHash(pin));
+  showTabAlert('securityAlert', 'PIN saved. App will lock when backgrounded.', 'success');
+  document.getElementById('pinSetupGroup').style.display = 'none';
+  document.getElementById('changePinGroup').style.display = 'block';
+  lastVisibleTime = Date.now();
+
+  // Show biometric option if available
+  let biometricsAvailable = false;
+  if (window.isSecureContext && window.PublicKeyCredential) {
+    try {
+      biometricsAvailable = await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
+    } catch (e) {}
+  }
+  document.getElementById('biometricGroup').style.display = biometricsAvailable ? 'block' : 'none';
+}
+
+function showChangePinUI() {
+  document.getElementById('pinSetupGroup').style.display = 'block';
+  document.getElementById('pinSetupInput').value = '';
+  document.getElementById('pinConfirmInput').value = '';
+  document.getElementById('pinSetupInput').focus();
+}
+
+function removePinLock() {
+  localStorage.removeItem(PIN_STORAGE_KEY);
+  localStorage.removeItem(BIOMETRIC_KEY);
+  localStorage.removeItem(BIOMETRIC_CRED_KEY);
+  document.getElementById('pinEnabled').checked = false;
+  document.getElementById('pinSetupGroup').style.display = 'none';
+  document.getElementById('biometricGroup').style.display = 'none';
+  document.getElementById('changePinGroup').style.display = 'none';
+  document.getElementById('biometricEnabled').checked = false;
+  showTabAlert('securityAlert', 'PIN lock removed.', 'success');
+}
+
+async function toggleBiometric() {
+  const enabled = document.getElementById('biometricEnabled').checked;
+
+  if (enabled) {
+    try {
+      // WebAuthn requires HTTPS (secure context)
+      if (!window.isSecureContext) {
+        throw new Error('Biometrics require HTTPS. Access via https:// or localhost.');
+      }
+
+      if (!window.PublicKeyCredential) {
+        throw new Error('WebAuthn not supported by this browser');
+      }
+
+      const available = await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
+      if (!available) {
+        throw new Error('No Face ID / Touch ID available on this device');
+      }
+
+      const challenge = new Uint8Array(32);
+      crypto.getRandomValues(challenge);
+
+      const credential = await navigator.credentials.create({
+        publicKey: {
+          challenge: challenge,
+          rp: { name: 'Media Downloader', id: window.location.hostname },
+          user: {
+            id: new Uint8Array(16),
+            name: 'user',
+            displayName: 'Media Downloader User'
+          },
+          pubKeyCredParams: [{ alg: -7, type: 'public-key' }],
+          authenticatorSelection: {
+            authenticatorAttachment: 'platform',
+            userVerification: 'required',
+            residentKey: 'discouraged'
+          },
+          timeout: 60000
+        }
+      });
+
+      const credIdBase64 = btoa(String.fromCharCode(...new Uint8Array(credential.rawId)));
+      localStorage.setItem(BIOMETRIC_CRED_KEY, credIdBase64);
+      localStorage.setItem(BIOMETRIC_KEY, 'true');
+      showTabAlert('securityAlert', 'Biometric unlock enabled.', 'success');
+    } catch (e) {
+      document.getElementById('biometricEnabled').checked = false;
+      showTabAlert('securityAlert', 'Failed to set up biometric: ' + (e.message || 'Unknown error'), 'error');
+    }
+  } else {
+    localStorage.removeItem(BIOMETRIC_KEY);
+    localStorage.removeItem(BIOMETRIC_CRED_KEY);
+    showTabAlert('securityAlert', 'Biometric unlock disabled.', 'success');
+  }
+}
+
+// Close modals on overlay click
+document.getElementById('settingsModal').addEventListener('click', e => {
+  if (e.target === document.getElementById('settingsModal')) closeSettings();
+});
+document.getElementById('categoryModal').addEventListener('click', e => {
+  if (e.target === document.getElementById('categoryModal')) closeCategoryManager();
+});
+
+// ===================================================================
+// Pull to refresh
+// ===================================================================
+(function() {
+  const indicator = document.getElementById('pullIndicator');
+  let startY = 0;
+  let currentY = 0;
+  let pulling = false;
+  let refreshing = false;
+  const threshold = 80;
+
+  function isAtTop() {
+    return window.scrollY <= 0;
+  }
+
+  function isMainScreen() {
+    return document.getElementById('mainScreen').classList.contains('visible');
+  }
+
+  document.addEventListener('touchstart', e => {
+    if (!isMainScreen() || !isAtTop() || refreshing) return;
+    startY = e.touches[0].clientY;
+    pulling = true;
+  }, { passive: true });
+
+  document.addEventListener('touchmove', e => {
+    if (!pulling || refreshing) return;
+    currentY = e.touches[0].clientY;
+    const pullDistance = currentY - startY;
+
+    if (pullDistance > 0 && isAtTop()) {
+      const progress = Math.min(pullDistance / threshold, 1);
+      indicator.style.transform = `translateX(-50%) translateY(${Math.min(pullDistance * 0.5, 50) - 40}px)`;
+      indicator.classList.toggle('visible', pullDistance > 20);
+    }
+  }, { passive: true });
+
+  document.addEventListener('touchend', async () => {
+    if (!pulling) return;
+    pulling = false;
+    const pullDistance = currentY - startY;
+
+    if (pullDistance >= threshold && isAtTop() && !refreshing) {
+      refreshing = true;
+      indicator.classList.add('refreshing');
+      indicator.style.transform = 'translateX(-50%) translateY(16px)';
+
+      try {
+        await loadDownloads();
+      } finally {
+        refreshing = false;
+        indicator.classList.remove('visible', 'refreshing');
+        indicator.style.transform = 'translateX(-50%) translateY(-100%)';
+      }
+    } else {
+      indicator.classList.remove('visible');
+      indicator.style.transform = 'translateX(-50%) translateY(-100%)';
+    }
+    startY = 0;
+    currentY = 0;
+  });
+})();
+
+// PWA
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('/sw.js').catch(() => {});
+}
+
+// Boot
+init();
+</script>
+</body>
+</html>

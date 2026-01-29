@@ -4,4 +4,10 @@ cookies.txt
 *.part
 *.mp4
 tailscale-state
-downloads
+downloads/
+data/
+__pycache__/
+*.pyc
+.venv/
+/.claude/
+.DS_Store

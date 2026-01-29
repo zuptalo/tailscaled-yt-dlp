@@ -1,51 +1,50 @@
 #!/bin/bash
 set -e
 
-# Check required vars
-if [ -z "$HEADSCALE_AUTHKEY" ]; then
-  echo "❌ Missing HEADSCALE_AUTHKEY env var"
-  exit 1
-fi
-if [ -z "$EXIT_NODE" ]; then
-  echo "❌ Missing EXIT_NODE env var"
-  exit 1
-fi
+# --- Start Tailscale daemon ---
+# Use userspace networking with SOCKS5 proxy for routing traffic through exit node
+echo "Starting tailscaled..."
+/usr/sbin/tailscaled --state=/var/lib/tailscale/tailscaled.state --tun=userspace-networking --socks5-server=localhost:1055 &
 
-# Start Tailscale daemon
-echo "🔌 Starting Tailscale..."
-/usr/sbin/tailscaled --state=/var/lib/tailscale/tailscaled.state --tun=userspace-networking &
+# Wait for tailscaled socket (up to 30s)
+echo "Waiting for tailscaled to be ready..."
+attempts=0
+max_attempts=30
+until [ -S /var/run/tailscale/tailscaled.sock ]; do
+  attempts=$((attempts + 1))
+  if [ "$attempts" -ge "$max_attempts" ]; then
+    echo "ERROR: tailscaled did not become ready within ${max_attempts}s"
+    exit 1
+  fi
+  sleep 1
+done
+echo "tailscaled is ready."
 
-sleep 2
-
-# Connect to Headscale
-tailscale up \
-  --login-server "$HEADSCALE_URL" \
-  --auth-key "$HEADSCALE_AUTHKEY" \
-  --exit-node "$EXIT_NODE" \
-  --exit-node-allow-lan-access=false \
-  --accept-routes
-
-echo "✅ Connected to Headscale, using exit node: $EXIT_NODE"
-
-# Cookies check
-if [ ! -f "/downloads/cookies.txt" ]; then
-  echo "❌ No cookies.txt found in /downloads"
-  exit 1
+# --- Cookies check (informational) ---
+COOKIES_FILE="${COOKIES_FILE:-/data/cookies.txt}"
+if [ -f "$COOKIES_FILE" ]; then
+  echo "Cookies file found at $COOKIES_FILE."
+else
+  echo "No cookies.txt found at $COOKIES_FILE. Some downloads may require it."
 fi
 
-echo "🚀 Container ready! You can now run yt-dlp commands."
-echo "Usage: y [URL] [options]"
-echo "Cookies and user-agent are automatically configured."
+# --- User agent ---
+USER_AGENT="${USER_AGENT:-Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36}"
 
-# Create yt-dlp wrapper function that automatically includes cookies and user-agent
-cat > /usr/local/bin/y << 'EOF'
+# --- Create CLI wrapper (backward compat) ---
+cat > /usr/local/bin/y << WRAPPER
 #!/bin/bash
-exec /usr/local/bin/yt-dlp \
-  --cookies /downloads/cookies.txt \
-  --user-agent "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36" \
-  "$@"
-EOF
+exec yt-dlp \\
+  --cookies "$COOKIES_FILE" \\
+  --user-agent "$USER_AGENT" \\
+  --js-runtimes node \\
+  --proxy "socks5://localhost:1055" \\
+  "\$@"
+WRAPPER
 chmod +x /usr/local/bin/y
+echo "CLI wrapper 'y' installed."
 
-# Keep container running with bash shell
-exec /bin/bash
+# --- Launch web UI ---
+echo "Starting web UI on port 8080..."
+echo "VPN and authentication are configured via the web setup wizard."
+exec uvicorn app.main:app --host 0.0.0.0 --port 8080 --app-dir /

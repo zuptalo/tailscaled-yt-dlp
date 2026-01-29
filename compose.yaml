@@ -1,6 +1,6 @@
 services:
   tailscaled-yt-dlp:
-    image: zuptalo/tailscaled-yt-dlp:latest
+    image: tailscaled-yt-dlp:latest
     container_name: tailscaled-yt-dlp
     hostname: tailscaled-yt-dlp
     restart: always
@@ -8,13 +8,18 @@ services:
       - NET_ADMIN
     devices:
       - /dev/net/tun
+    ports:
+      - "8080:8080"
     volumes:
       - ./downloads:/downloads
-      - ./cookies.txt:/downloads/cookies.txt
+      - ./data:/data
       - ./tailscale-state:/var/lib/tailscale
+    # Headscale credentials are configured via the web setup wizard.
+    # Optional env var overrides:
     environment:
-      - HEADSCALE_URL=https://hs.example.com
-      - HEADSCALE_AUTHKEY=your-pre-authorised-key-goes-here
-      - EXIT_NODE=your-exit-node-tailscale-ip-goes-here
+       MAX_CONCURRENT_DOWNLOADS: "10"
+    #   USER_AGENT: "Mozilla/5.0 ..."
+    #   COOKIES_FILE: "/downloads/cookies.txt"
+    #   DOWNLOADS_DIR: "/downloads"
     tty: true
     stdin_open: true
