@@ -1,4 +1,5 @@
 yt-dlp[default]
+curl_cffi>=0.10,<0.14
 fastapi
 uvicorn[standard]
 aiosqlite

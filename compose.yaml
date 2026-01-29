@@ -1,6 +1,7 @@
 services:
   tailscaled-yt-dlp:
-    image: tailscaled-yt-dlp:latest
+    build: .
+    image: tailscaled-yt-dlp:local
     container_name: tailscaled-yt-dlp
     hostname: tailscaled-yt-dlp
     restart: always

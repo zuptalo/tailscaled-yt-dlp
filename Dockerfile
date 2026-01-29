@@ -11,9 +11,15 @@ RUN apk add --no-cache \
     bash \
     curl
 
-# Install Python dependencies
+# Install Python dependencies (with build deps for curl_cffi)
 COPY requirements.txt /tmp/requirements.txt
-RUN pip3 install --no-cache-dir --break-system-packages -r /tmp/requirements.txt \
+RUN apk add --no-cache --virtual .build-deps \
+        gcc \
+        musl-dev \
+        libffi-dev \
+        python3-dev \
+    && pip3 install --no-cache-dir --break-system-packages -r /tmp/requirements.txt \
+    && apk del .build-deps \
     && rm /tmp/requirements.txt
 
 # Create directories
