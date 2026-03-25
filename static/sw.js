@@ -1,4 +1,4 @@
-const CACHE_NAME = 'media-dl-shell-v18';
+const CACHE_NAME = 'media-dl-shell-v19';
 const SHELL_URLS = ['/', '/manifest.json'];
 
 self.addEventListener('install', event => {

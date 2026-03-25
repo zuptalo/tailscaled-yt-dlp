@@ -269,6 +269,21 @@ body {
 }
 
 .dl-body { flex: 1; min-width: 0; display: flex; flex-direction: column; justify-content: center; }
+.dl-share-aside {
+  display: none;
+  flex-shrink: 0;
+  align-self: center;
+  margin-left: auto;
+}
+@media (max-width: 640px) {
+  .dl-share-aside {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+  }
+  .dl-share-aside .btn { white-space: nowrap; }
+  .dl-share-desktop-only { display: none !important; }
+}
 .dl-title {
   font-size: 14px; font-weight: 500;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
@@ -337,10 +352,11 @@ body {
 }
 .category-badge.clickable:active { opacity: 0.7; }
 .cat-dropdown {
-  display: none; position: absolute; top: 100%; left: 0; z-index: 100;
-  margin-top: 4px; background: #1a1a1a; border: 1px solid #2a2a2a;
+  display: none; position: fixed; z-index: 10000;
+  background: #1a1a1a; border: 1px solid #2a2a2a;
   border-radius: 8px; min-width: 160px; padding: 4px 0;
   box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+  max-height: 260px; overflow-y: auto;
 }
 .cat-dropdown.open { display: block; }
 .cat-dropdown-item {
@@ -1256,6 +1272,31 @@ body.action-sheet-open {
 // ===================================================================
 let authToken = localStorage.getItem('ytdlp_token');
 
+/** Set when opened via Web Share Target (GET ?url= / ?text=). Consumed after auth + optional PIN unlock. */
+let pendingShareUrl = null;
+
+function takeShareTargetFromLocation() {
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const u = (params.get('url') || '').trim();
+    const text = (params.get('text') || '').trim();
+    let target = u;
+    if (!target && text) {
+      const m = text.match(/https?:\/\/[^\s<>"'\]}]+/i);
+      if (m) target = m[0].replace(/[.,);\]}>'"]+$/g, '');
+    }
+    if (!target && /^https?:\/\//i.test(text)) target = text.trim();
+    if (target) {
+      const path = window.location.pathname || '/';
+      history.replaceState({}, document.title, path);
+      return target;
+    }
+  } catch (e) {}
+  return null;
+}
+
+pendingShareUrl = takeShareTargetFromLocation();
+
 const state = {
   downloads: new Map(),
   categories: [],
@@ -1345,6 +1386,8 @@ async function enterMainApp() {
   // Lock app if PIN is enabled (fresh app load), but not if returning from video
   if (isPinEnabled() && !sessionStorage.getItem('media-dl-video-nav')) {
     lockApp();
+  } else {
+    void maybeConsumeShareTargetUrl();
   }
 }
 
@@ -1795,6 +1838,15 @@ async function fetchFormats() {
   await fetchFormatsForUrl(url);
 }
 
+async function maybeConsumeShareTargetUrl() {
+  if (!pendingShareUrl || !authToken) return;
+  const url = pendingShareUrl;
+  pendingShareUrl = null;
+  const input = document.getElementById('urlInput');
+  if (input) input.value = url;
+  await fetchFormatsForUrl(url);
+}
+
 async function onFormatExitChange() {
   if (!state.fetchedUrl) return;
   await fetchFormatsForUrl(state.fetchedUrl);
@@ -2176,7 +2228,19 @@ function toggleCatDropdown(badge) {
   const dropdown = badge.querySelector('.cat-dropdown');
   const wasOpen = dropdown.classList.contains('open');
   document.querySelectorAll('.cat-dropdown.open').forEach(d => d.classList.remove('open'));
-  if (!wasOpen) dropdown.classList.add('open');
+  if (!wasOpen) {
+    const rect = badge.getBoundingClientRect();
+    dropdown.style.left = rect.left + 'px';
+    const spaceBelow = window.innerHeight - rect.bottom;
+    if (spaceBelow < 200) {
+      dropdown.style.top = '';
+      dropdown.style.bottom = (window.innerHeight - rect.top + 4) + 'px';
+    } else {
+      dropdown.style.top = (rect.bottom + 4) + 'px';
+      dropdown.style.bottom = '';
+    }
+    dropdown.classList.add('open');
+  }
 }
 
 function selectCardCategory(downloadId, categoryId) {
@@ -2404,7 +2468,7 @@ function renderDownloads() {
     let actions = '';
     if (isCompleted && !('ontouchstart' in window)) {
       actions += '<button class="btn btn-ghost btn-sm" onclick="saveDownload(\'' + d.id + '\')">Save</button>';
-      actions += '<button class="btn btn-ghost btn-sm" onclick="toggleSharePanel(\'' + d.id + '\')">Share Link</button>';
+      actions += '<button type="button" class="btn btn-ghost btn-sm dl-share-desktop-only" onclick="toggleSharePanel(\'' + d.id + '\')">Share Link</button>';
       actions += '<button class="btn btn-danger btn-sm" onclick="deleteDownload(\'' + d.id + '\')">Delete</button>';
     }
     if (isLive) {
@@ -2460,6 +2524,12 @@ function renderDownloads() {
       '</div>';
     }
 
+    const shareAside = isCompleted
+      ? '<div class="dl-share-aside">' +
+          '<button type="button" class="btn btn-ghost btn-sm" onclick="event.stopPropagation();toggleSharePanel(\'' + d.id + '\')">Share Link</button>' +
+        '</div>'
+      : '';
+
     const cardContent = '<div class="download-card" data-id="' + d.id + '">' +
       '<div class="dl-main">' +
         thumbHtml +
@@ -2468,6 +2538,7 @@ function renderDownloads() {
           (metaLine ? '<div class="dl-meta-line">' + metaLine + '</div>' : '') +
           '<div class="dl-badges">' + badges + '</div>' +
         '</div>' +
+        shareAside +
       '</div>' +
       progressSection +
       liveSection +
@@ -2519,6 +2590,10 @@ function initSwipeGestures() {
     let startX = 0, startY = 0, deltaX = 0, isDragging = false, isScrolling = null;
 
     inner.addEventListener('touchstart', e => {
+      if (e.target.closest('.dl-share-aside')) {
+        deltaX = 0;
+        return;
+      }
       startX = e.touches[0].clientX;
       startY = e.touches[0].clientY;
       deltaX = 0;
@@ -3472,6 +3547,7 @@ function unlockApp() {
   pinEntryBuffer = '';
   document.getElementById('lockScreen').classList.remove('visible');
   lastVisibleTime = Date.now();
+  void maybeConsumeShareTargetUrl();
 }
 
 function updatePinDots() {
