@@ -58,8 +58,7 @@ body {
 .vpn-dot.online { background: #22c55e; }
 .vpn-dot.offline { background: #eab308; }
 
-/* Menu button & dropdown */
-.menu-wrapper { position: relative; }
+/* Settings button */
 .menu-btn {
   background: none; border: 1px solid #2a2a2a; color: #a3a3a3;
   width: 44px; height: 44px; border-radius: 8px; cursor: pointer;
@@ -67,22 +66,6 @@ body {
   font-size: 20px; transition: all 0.2s; line-height: 1;
 }
 .menu-btn:hover { background: #1a1a1a; color: #e5e5e5; }
-.menu-dropdown {
-  display: none; position: absolute; right: 0; top: 48px;
-  background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 10px;
-  min-width: 180px; z-index: 50; overflow: hidden;
-  box-shadow: 0 8px 32px rgba(0,0,0,0.5);
-}
-.menu-dropdown.open { display: block; }
-.menu-item {
-  display: block; width: 100%; padding: 12px 16px; border: none;
-  background: none; color: #e5e5e5; font-size: 14px; text-align: left;
-  cursor: pointer; transition: background 0.15s;
-}
-.menu-item:hover { background: #2a2a2a; }
-.menu-item:active { background: #333; }
-.menu-divider { height: 1px; background: #2a2a2a; }
-.menu-item.danger { color: #ef4444; }
 
 /* Shared form styles */
 .card {
@@ -438,11 +421,43 @@ body {
 .modal-close:hover { color: #e5e5e5; }
 
 /* Settings tabs */
-.settings-tabs {
-  display: flex; gap: 6px; margin-bottom: 16px; flex-wrap: wrap;
+.settings-section { border-top: 1px solid #2a2a2a; }
+.settings-section:first-child { border-top: none; }
+.settings-section-title {
+  text-transform: uppercase; font-size: 11px; font-weight: 600;
+  color: #737373; letter-spacing: 0.05em;
+  padding: 16px 0 16px; margin: 0; cursor: pointer;
+  display: flex; align-items: center; justify-content: space-between;
+  user-select: none;
 }
-.settings-tab-content { display: none; }
-.settings-tab-content.active { display: block; }
+.settings-section-title:hover { color: #a3a3a3; }
+.settings-section-chevron {
+  font-size: 14px; transition: transform 0.2s ease;
+  color: #525252;
+}
+.settings-section.open .settings-section-chevron { transform: rotate(90deg); }
+.settings-section-body {
+  max-height: 0; overflow: hidden;
+  transition: max-height 0.3s ease;
+}
+.settings-section.open .settings-section-body {
+  max-height: 2000px;
+}
+.cat-row {
+  display: flex; align-items: center; gap: 8px; padding: 8px 0;
+  border-bottom: 1px solid #2a2a2a; transition: background 0.15s;
+  position: relative; user-select: none;
+}
+.cat-row.dragging {
+  opacity: 0.5; background: #2a2a2a; z-index: 10;
+}
+.cat-row.drag-over-above { box-shadow: 0 -2px 0 0 #3b82f6; }
+.cat-row.drag-over-below { box-shadow: 0 2px 0 0 #3b82f6; }
+.drag-handle {
+  cursor: grab; color: #525252; font-size: 16px; user-select: none;
+  padding: 4px 4px; touch-action: none;
+}
+.drag-handle:active { cursor: grabbing; color: #a3a3a3; }
 .tab-alert {
   padding: 10px 14px; border-radius: 8px; font-size: 13px;
   margin-bottom: 12px; display: none;
@@ -681,6 +696,71 @@ body.action-sheet-open {
 .pin-key.invisible {
   visibility: hidden;
 }
+.pin-setup-label {
+  font-size: 14px;
+  color: #a3a3a3;
+  margin: 0 0 12px;
+}
+.pin-setup-dots {
+  display: flex;
+  justify-content: center;
+  gap: 14px;
+  margin-bottom: 8px;
+}
+.pin-setup-dots .pin-dot {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid #404040;
+  background: transparent;
+  transition: background 0.15s, border-color 0.15s;
+}
+.pin-setup-dots .pin-dot.filled {
+  background: #3b82f6;
+  border-color: #3b82f6;
+}
+.pin-setup-dots .pin-dot.error {
+  background: #ef4444;
+  border-color: #ef4444;
+}
+.pin-setup-error {
+  font-size: 12px;
+  color: #ef4444;
+  height: 18px;
+  margin: 4px 0 0;
+}
+.pin-setup-keypad {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  max-width: 240px;
+  margin: 0 auto;
+  justify-items: center;
+}
+.pin-setup-key {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  border: 1px solid #2a2a2a;
+  background: #1a1a1a;
+  color: #e5e5e5;
+  font-size: 22px;
+  font-weight: 500;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s;
+  -webkit-tap-highlight-color: transparent;
+}
+.pin-setup-key:active {
+  background: #3b82f6;
+  border-color: #3b82f6;
+  transform: scale(0.95);
+}
+.pin-setup-key.delete {
+  font-size: 18px;
+}
 .lock-error {
   color: #ef4444;
   font-size: 13px;
@@ -707,6 +787,14 @@ body.action-sheet-open {
 </style>
 </head>
 <body>
+<!-- Privacy screen (shown in task manager when PIN is enabled) -->
+<div id="privacyScreen" style="display:none;position:fixed;inset:0;background:#0f0f0f;z-index:30000;flex-direction:column;align-items:center;justify-content:center;">
+  <svg width="72" height="72" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2">
+    <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+    <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+  </svg>
+  <div style="font-size:20px;font-weight:600;color:#e5e5e5;margin-top:24px;">Media Downloader</div>
+</div>
 <!-- Lock screen -->
 <div class="lock-screen" id="lockScreen">
   <svg class="lock-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -731,7 +819,7 @@ body.action-sheet-open {
     <button class="pin-key" data-key="7">7</button>
     <button class="pin-key" data-key="8">8</button>
     <button class="pin-key" data-key="9">9</button>
-    <button class="pin-key biometric" id="biometricKey" data-key="biometric" style="display:none">
+    <button class="pin-key biometric" id="biometricKey" data-key="biometric" style="visibility:hidden">
       <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
         <path d="M12 2a10 10 0 0 0-7.07 17.07"/>
         <path d="M12 2a10 10 0 0 1 7.07 17.07"/>
@@ -757,9 +845,9 @@ body.action-sheet-open {
 <div class="action-sheet-overlay" id="deleteConfirmSheet">
   <div>
     <div class="action-sheet">
-      <div class="action-sheet-title">Delete Download</div>
+      <div class="action-sheet-title" id="deleteConfirmTitle">Delete Download</div>
       <div class="action-sheet-message" id="deleteConfirmMessage">This will permanently delete the file.</div>
-      <button class="action-sheet-btn danger" onclick="confirmDelete()">Delete</button>
+      <button class="action-sheet-btn danger" id="deleteConfirmBtn" onclick="confirmDelete()">Delete</button>
     </div>
     <div class="action-sheet action-sheet-cancel">
       <button class="action-sheet-btn" onclick="closeDeleteConfirm()">Cancel</button>
@@ -776,6 +864,34 @@ body.action-sheet-open {
     </div>
     <div class="action-sheet action-sheet-cancel">
       <button class="action-sheet-btn" onclick="closeSaveSheet()">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<div class="action-sheet-overlay" id="catRenameSheet">
+  <div>
+    <div class="action-sheet">
+      <div class="action-sheet-title">Rename Category</div>
+      <div style="padding: 0 20px 16px;">
+        <input class="form-input" id="catRenameInput" type="text" placeholder="New name" style="margin:0; text-align:center; font-size:16px;">
+      </div>
+      <button class="action-sheet-btn primary" onclick="confirmRenameCategory()">Rename</button>
+    </div>
+    <div class="action-sheet action-sheet-cancel">
+      <button class="action-sheet-btn" onclick="closeCatRenameSheet()">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<div class="action-sheet-overlay" id="catDeleteSheet">
+  <div>
+    <div class="action-sheet">
+      <div class="action-sheet-title" id="catDeleteTitle">Delete Category</div>
+      <div class="action-sheet-message">Downloads in this category will become uncategorized.</div>
+      <button class="action-sheet-btn danger" onclick="confirmDeleteCategory()">Delete</button>
+    </div>
+    <div class="action-sheet action-sheet-cancel">
+      <button class="action-sheet-btn" onclick="closeCatDeleteSheet()">Cancel</button>
     </div>
   </div>
 </div>
@@ -833,6 +949,9 @@ body.action-sheet-open {
             <button class="btn btn-ghost" onclick="wizardBack(1)">Back</button>
             <button class="btn btn-primary btn-block" id="setupConnectBtn" onclick="wizardConnect()" disabled>Connect to Headscale</button>
           </div>
+          <div class="form-group" style="margin-top: 12px;">
+            <button type="button" class="btn btn-ghost btn-block" id="wizardSkipVpnBtn" onclick="wizardSkipVpn()">Skip VPN (direct connection)</button>
+          </div>
         </div>
 
         <!-- Step 2: Exit node selection -->
@@ -886,19 +1005,16 @@ body.action-sheet-open {
     <div class="header">
       <h1>Media Downloader</h1>
       <div class="header-right">
-        <div class="vpn-badge" style="cursor: pointer;" onclick="refreshExternalIp()">
+        <div class="vpn-badge" style="cursor: pointer;" onclick="openSettingsVpn()">
           <div class="vpn-dot" id="vpnDot"></div>
           <span id="externalIp">--</span>
         </div>
-        <div class="menu-wrapper">
-          <button class="menu-btn" id="menuBtn" aria-label="Menu">&#8942;</button>
-          <div class="menu-dropdown" id="menuDropdown">
-            <button class="menu-item" onclick="openSettings(); closeMenu();">Settings</button>
-            <button class="menu-item" onclick="openCategoryManager(); closeMenu();">Categories</button>
-            <div class="menu-divider"></div>
-            <button class="menu-item danger" onclick="doLogout(); closeMenu();">Sign out</button>
-          </div>
-        </div>
+        <button class="menu-btn" aria-label="Settings" onclick="openSettings()">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/>
+            <circle cx="12" cy="12" r="3"/>
+          </svg>
+        </button>
       </div>
     </div>
 
@@ -953,127 +1069,164 @@ body.action-sheet-open {
 <!-- Settings Modal -->
 <div class="modal-overlay" id="settingsModal">
   <div class="modal">
-    <button class="modal-close" onclick="closeSettings()">&times;</button>
-    <div class="modal-title">Settings</div>
-    <div class="settings-tabs" id="settingsTabs">
-      <span class="filter-chip active" data-tab="general" onclick="switchSettingsTab('general')">General</span>
-      <span class="filter-chip" data-tab="account" onclick="switchSettingsTab('account')">Account</span>
-      <span class="filter-chip" data-tab="vpn" onclick="switchSettingsTab('vpn')">VPN</span>
-      <span class="filter-chip" data-tab="security" onclick="switchSettingsTab('security')">Security</span>
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
+      <div style="font-size:16px;font-weight:600;">Settings</div>
+      <button class="modal-close" onclick="closeSettings()" style="float:none;margin:0;">&times;</button>
     </div>
 
-    <!-- General tab -->
-    <div class="settings-tab-content active" id="settingsTab-general">
-      <div id="generalAlert" class="tab-alert"></div>
-      <div class="form-group">
-        <label class="form-label">Public URL (for share links)</label>
-        <input class="form-input" id="settingsPublicUrl" type="url" placeholder="https://dl.example.com">
-      </div>
-      <div class="btn-row">
-        <button class="btn btn-primary" onclick="saveGeneralSettings()">Save</button>
-      </div>
-    </div>
-
-    <!-- Account tab -->
-    <div class="settings-tab-content" id="settingsTab-account">
-      <div id="accountAlert" class="tab-alert"></div>
-      <div class="form-group">
-        <label class="form-label">Current password (required)</label>
-        <input class="form-input" id="settingsCurrentPassword" type="password" autocomplete="current-password" autocapitalize="off">
-      </div>
-      <div class="form-group">
-        <label class="form-label">New username</label>
-        <input class="form-input" id="settingsNewUsername" type="text" placeholder="Leave blank to keep current" autocomplete="username" autocapitalize="off">
-      </div>
-      <div class="form-group">
-        <label class="form-label">New password</label>
-        <input class="form-input" id="settingsNewPassword" type="password" placeholder="Leave blank to keep current" autocomplete="new-password" autocapitalize="off">
-      </div>
-      <div class="btn-row">
-        <button class="btn btn-primary" onclick="saveAccountSettings()">Update</button>
-      </div>
-    </div>
-
-    <!-- VPN tab -->
-    <div class="settings-tab-content" id="settingsTab-vpn">
-      <div id="vpnAlert" class="tab-alert"></div>
-      <div class="form-group">
-        <label class="form-label">Exit node</label>
-        <div class="node-list" id="settingsExitNodeList">
-          <div class="node-empty">Loading...</div>
+    <!-- General -->
+    <div class="settings-section" data-section="general">
+      <div class="settings-section-title" onclick="toggleSettingsSection('general')">General <span class="settings-section-chevron">&#9656;</span></div>
+      <div class="settings-section-body">
+        <div id="generalAlert" class="tab-alert"></div>
+        <div class="form-group">
+          <label class="form-label">Public URL (for share links)</label>
+          <input class="form-input" id="settingsPublicUrl" type="url" placeholder="https://dl.example.com">
         </div>
-        <div class="btn-row" style="margin-top: 12px;">
-          <button class="btn btn-primary" onclick="changeExitNode()">Change Exit Node</button>
-          <button class="btn btn-danger" onclick="disconnectVpn()">Disconnect</button>
-        </div>
-      </div>
-      <details style="margin-top: 16px;">
-        <summary style="font-size: 13px; color: #737373; cursor: pointer;">Advanced: Reconnect with different credentials</summary>
-        <div style="margin-top: 12px;">
-          <div class="form-group">
-            <label class="form-label">Headscale URL</label>
-            <input class="form-input" id="settingsHeadscaleUrl" type="url" placeholder="https://hs.example.com">
-          </div>
-          <div class="form-group">
-            <label class="form-label">Auth key</label>
-            <input class="form-input" id="settingsAuthkey" type="password" placeholder="Enter auth key to reconnect">
-          </div>
+        <div class="form-group">
+          <label class="form-label">Cookies (Netscape format)</label>
+          <p style="font-size: 12px; color: #737373; margin-top: 0;">Single merged file for all sites (browser export). Used by yt-dlp for authenticated downloads.</p>
+          <div id="cookiesStatus" style="font-size: 13px; margin: 8px 0;"></div>
+          <input type="file" id="cookiesFileInput" accept=".txt,text/plain" style="display: none;" onchange="uploadCookiesFile(event)">
           <div class="btn-row">
-            <button class="btn btn-primary" onclick="saveVpnSettings()">Reconnect VPN</button>
+            <button type="button" class="btn btn-ghost" onclick="document.getElementById('cookiesFileInput').click()">Upload cookies.txt</button>
+            <button type="button" class="btn btn-danger" onclick="clearCookiesFile()">Clear</button>
           </div>
         </div>
-      </details>
+        <div class="btn-row" style="margin-bottom: 16px;">
+          <button class="btn btn-primary" onclick="saveGeneralSettings()">Save</button>
+        </div>
+      </div>
     </div>
 
-    <!-- Security tab -->
-    <div class="settings-tab-content" id="settingsTab-security">
-      <div id="securityAlert" class="tab-alert"></div>
-      <div class="form-group">
-        <label class="form-label">App Lock</label>
-        <div style="display: flex; align-items: center; gap: 12px; margin-top: 8px;">
-          <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
-            <input type="checkbox" id="pinEnabled" onchange="togglePinLock()" style="accent-color: #3b82f6; width: 18px; height: 18px;">
-            <span style="font-size: 14px;">Enable PIN lock</span>
-          </label>
+    <!-- VPN -->
+    <div class="settings-section" data-section="vpn" id="settingsSectionVpn">
+      <div class="settings-section-title" onclick="toggleSettingsSection('vpn')">VPN <span class="settings-section-chevron">&#9656;</span></div>
+      <div class="settings-section-body">
+        <div id="vpnAlert" class="tab-alert"></div>
+        <div class="form-group">
+          <label class="form-label">Route traffic through</label>
+          <div class="node-list" id="settingsExitNodeList">
+            <div class="node-empty">Loading...</div>
+          </div>
+          <div class="btn-row" style="margin-top: 12px;">
+            <button class="btn btn-primary" style="width:100%" onclick="saveRoutingChoice()">Save</button>
+          </div>
         </div>
-        <p style="font-size: 12px; color: #737373; margin-top: 8px;">Lock app when returning from background</p>
-      </div>
-      <div class="form-group" id="pinSetupGroup" style="display: none;">
-        <label class="form-label">Set PIN (4 digits)</label>
-        <input class="form-input" id="pinSetupInput" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="4" placeholder="Enter 4-digit PIN" autocomplete="off">
-        <input class="form-input" id="pinConfirmInput" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="4" placeholder="Confirm PIN" autocomplete="off" style="margin-top: 8px;">
-        <div class="btn-row">
-          <button class="btn btn-primary" onclick="savePinSettings()">Save PIN</button>
-          <button class="btn btn-ghost" onclick="cancelPinSetup()">Cancel</button>
-        </div>
-      </div>
-      <div class="form-group" id="biometricGroup" style="display: none;">
-        <label class="form-label">Biometric Unlock</label>
-        <div style="display: flex; align-items: center; gap: 12px; margin-top: 8px;">
-          <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
-            <input type="checkbox" id="biometricEnabled" onchange="toggleBiometric()" style="accent-color: #3b82f6; width: 18px; height: 18px;">
-            <span style="font-size: 14px;">Enable Face ID / Touch ID</span>
-          </label>
-        </div>
-        <p style="font-size: 12px; color: #737373; margin-top: 8px;">Use biometrics as an alternative to PIN</p>
-      </div>
-      <div class="form-group" id="changePinGroup" style="display: none;">
-        <button class="btn btn-ghost" onclick="showChangePinUI()">Change PIN</button>
-        <button class="btn btn-danger" onclick="removePinLock()" style="margin-left: 8px;">Remove PIN</button>
+        <details style="margin-top: 16px;">
+          <summary style="font-size: 13px; color: #737373; cursor: pointer;">Advanced: Reconnect with different credentials</summary>
+          <div style="margin-top: 12px;">
+            <div class="form-group">
+              <label class="form-label">Headscale URL</label>
+              <input class="form-input" id="settingsHeadscaleUrl" type="url" placeholder="https://hs.example.com">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Auth key</label>
+              <input class="form-input" id="settingsAuthkey" type="password" placeholder="Enter auth key to reconnect">
+            </div>
+            <div class="btn-row">
+              <button class="btn btn-primary" onclick="saveVpnSettings()">Reconnect VPN</button>
+            </div>
+          </div>
+        </details>
+        <div style="height: 16px;"></div>
       </div>
     </div>
-  </div>
-</div>
 
-<!-- Category Manager Modal -->
-<div class="modal-overlay" id="categoryModal">
-  <div class="modal">
-    <button class="modal-close" onclick="closeCategoryManager()">&times;</button>
-    <div class="modal-title">Categories</div>
-    <div id="categoryList" style="margin-bottom:16px;"></div>
-    <div style="display:flex;gap:8px;">
-      <input class="form-input" id="newCategoryName" type="text" placeholder="New category name" style="margin:0;">
-      <button class="btn btn-primary btn-sm" onclick="createCategory()">Add</button>
+    <!-- Categories -->
+    <div class="settings-section" data-section="categories">
+      <div class="settings-section-title" onclick="toggleSettingsSection('categories')">Categories <span class="settings-section-chevron">&#9656;</span></div>
+      <div class="settings-section-body">
+        <div id="categoryList" style="margin-bottom:12px;"></div>
+        <div style="display:flex;gap:8px;margin-bottom:16px;">
+          <input class="form-input" id="newCategoryName" type="text" placeholder="New category name" style="margin:0;">
+          <button class="btn btn-primary btn-sm" onclick="createCategory()">Add</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Account -->
+    <div class="settings-section" data-section="account">
+      <div class="settings-section-title" onclick="toggleSettingsSection('account')">Account <span class="settings-section-chevron">&#9656;</span></div>
+      <div class="settings-section-body">
+        <div id="accountAlert" class="tab-alert"></div>
+        <div class="form-group">
+          <label class="form-label">Current password (required)</label>
+          <input class="form-input" id="settingsCurrentPassword" type="password" autocomplete="current-password" autocapitalize="off">
+        </div>
+        <div class="form-group">
+          <label class="form-label">New username</label>
+          <input class="form-input" id="settingsNewUsername" type="text" placeholder="Leave blank to keep current" autocomplete="username" autocapitalize="off">
+        </div>
+        <div class="form-group">
+          <label class="form-label">New password</label>
+          <input class="form-input" id="settingsNewPassword" type="password" placeholder="Leave blank to keep current" autocomplete="new-password" autocapitalize="off">
+        </div>
+        <div class="btn-row" style="margin-bottom: 16px;">
+          <button class="btn btn-primary" onclick="saveAccountSettings()">Update</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Security -->
+    <div class="settings-section" data-section="security">
+      <div class="settings-section-title" onclick="toggleSettingsSection('security')">Security <span class="settings-section-chevron">&#9656;</span></div>
+      <div class="settings-section-body">
+        <div id="securityAlert" class="tab-alert"></div>
+        <div class="form-group">
+          <label class="form-label">App Lock</label>
+          <div style="display: flex; align-items: center; gap: 12px; margin-top: 8px;">
+            <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+              <input type="checkbox" id="pinEnabled" onchange="togglePinLock()" style="accent-color: #3b82f6; width: 18px; height: 18px;">
+              <span style="font-size: 14px;">Enable PIN lock</span>
+            </label>
+          </div>
+          <p style="font-size: 12px; color: #737373; margin-top: 8px;">Lock app when returning from background</p>
+        </div>
+        <div class="form-group" id="pinSetupGroup" style="display: none;">
+          <div style="text-align:center;">
+            <p class="pin-setup-label" id="pinSetupLabel">Enter new PIN</p>
+            <div class="pin-setup-dots" id="pinSetupDots">
+              <span class="pin-dot"></span><span class="pin-dot"></span><span class="pin-dot"></span><span class="pin-dot"></span>
+            </div>
+            <p class="pin-setup-error" id="pinSetupError"></p>
+            <div class="pin-setup-keypad" id="pinSetupKeypad">
+              <button class="pin-setup-key" data-key="1">1</button>
+              <button class="pin-setup-key" data-key="2">2</button>
+              <button class="pin-setup-key" data-key="3">3</button>
+              <button class="pin-setup-key" data-key="4">4</button>
+              <button class="pin-setup-key" data-key="5">5</button>
+              <button class="pin-setup-key" data-key="6">6</button>
+              <button class="pin-setup-key" data-key="7">7</button>
+              <button class="pin-setup-key" data-key="8">8</button>
+              <button class="pin-setup-key" data-key="9">9</button>
+              <span></span>
+              <button class="pin-setup-key" data-key="0">0</button>
+              <button class="pin-setup-key delete" data-key="delete">⌫</button>
+            </div>
+            <button class="btn btn-ghost" onclick="cancelPinSetup()" style="margin-top:12px;">Cancel</button>
+          </div>
+        </div>
+        <div class="form-group" id="biometricGroup" style="display: none;">
+          <label class="form-label">Biometric Unlock</label>
+          <div style="display: flex; align-items: center; gap: 12px; margin-top: 8px;">
+            <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+              <input type="checkbox" id="biometricEnabled" onchange="toggleBiometric()" style="accent-color: #3b82f6; width: 18px; height: 18px;">
+              <span style="font-size: 14px;">Enable Face ID / Touch ID</span>
+            </label>
+          </div>
+          <p style="font-size: 12px; color: #737373; margin-top: 8px;">Use biometrics as an alternative to PIN</p>
+        </div>
+        <div class="form-group" id="changePinGroup" style="display: none;">
+          <button class="btn btn-ghost" onclick="showChangePinUI()">Change PIN</button>
+          <button class="btn btn-danger" onclick="removePinLock()" style="margin-left: 8px;">Remove PIN</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Sign Out -->
+    <div style="border-top: 1px solid #2a2a2a; padding-top: 20px; margin-top: 4px;">
+      <button class="btn btn-danger" style="width: 100%;" onclick="doLogout()">Sign Out</button>
     </div>
   </div>
 </div>
@@ -1095,6 +1248,7 @@ const state = {
   searchTerm: '',
   sortBy: 'status',
   filterCategory: null,
+  _defaultCategoryLoaded: false,
   openSharePanels: new Set(),
   shareLinks: new Map(),
   settingsVpnLoaded: false,
@@ -1159,8 +1313,10 @@ async function init() {
   }
 }
 
-function enterMainApp() {
+async function enterMainApp() {
   showScreen('mainScreen');
+  await loadAppSettings();
+  renderVPN();
   loadVPN();
   loadDownloads();
   loadCategories();
@@ -1172,6 +1328,16 @@ function enterMainApp() {
   if (isPinEnabled() && !sessionStorage.getItem('media-dl-video-nav')) {
     lockApp();
   }
+}
+
+async function loadAppSettings() {
+  try {
+    const resp = await apiFetch('/api/settings');
+    if (resp.ok) {
+      const data = await resp.json();
+      _cachedPinHash = data.pin_hash || null;
+    }
+  } catch (e) {}
 }
 
 // ===================================================================
@@ -1286,6 +1452,43 @@ function renderExitNodes() {
   });
 }
 
+async function wizardSkipVpn() {
+  const btn = document.getElementById('wizardSkipVpnBtn');
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span> Finishing...';
+  }
+  try {
+    const resp = await fetch('/api/setup/complete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        username: wizard.username,
+        password: wizard.password,
+        use_vpn: false,
+      }),
+    });
+
+    if (!resp.ok) {
+      const err = await resp.json();
+      showAlert('wizardAlert', err.detail || 'Setup failed.');
+      return;
+    }
+
+    const data = await resp.json();
+    authToken = data.token;
+    localStorage.setItem('ytdlp_token', authToken);
+    enterMainApp();
+  } catch (e) {
+    showAlert('wizardAlert', 'Network error: ' + e.message);
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = 'Skip VPN (direct connection)';
+    }
+  }
+}
+
 async function wizardComplete() {
   if (!wizard.selectedExitNode) {
     showAlert('wizardAlert', 'Please select an exit node.');
@@ -1303,6 +1506,7 @@ async function wizardComplete() {
       body: JSON.stringify({
         username: wizard.username,
         password: wizard.password,
+        use_vpn: true,
         headscale_url: wizard.headscaleUrl,
         headscale_authkey: wizard.headscaleAuthkey,
         exit_node: wizard.selectedExitNode,
@@ -1374,9 +1578,37 @@ async function doLogout() {
     await apiFetch('/api/auth/logout', { method: 'POST' });
   } catch (e) {}
   authToken = null;
+
+  // Clear all local storage
   localStorage.removeItem('ytdlp_token');
+  localStorage.removeItem(BIOMETRIC_KEY);
+  localStorage.removeItem(BIOMETRIC_CRED_KEY);
+  sessionStorage.removeItem(VIDEO_NAV_KEY);
+
+  // Reset cached backend state
+  _cachedPinHash = null;
+  _cachedChipOrder = null;
+
+  // Reset in-memory state
+  state.downloads = new Map();
+  state.categories = [];
+  state.formats = null;
+  state.selectedFormat = null;
+  state.vpn = { connected: false, exit_node: null, exit_node_online: false };
+  state.fetchedUrl = null;
+  state.searchTerm = '';
+  state.sortBy = 'status';
+  state.filterCategory = null;
+  state._defaultCategoryLoaded = false;
+  state.openSharePanels = new Set();
+  state.shareLinks = new Map();
+  state.settingsVpnLoaded = false;
+  state.settingsSelectedExitNode = null;
+  isLocked = false;
+
   if (evtSource) { evtSource.close(); evtSource = null; }
   stopLiveTimer();
+  closeSettings();
   showScreen('loginScreen');
 }
 
@@ -1445,28 +1677,6 @@ function showTabAlert(id, msg, type) {
 }
 
 // ===================================================================
-// Menu
-// ===================================================================
-function toggleMenu() {
-  document.getElementById('menuDropdown').classList.toggle('open');
-}
-function closeMenu() {
-  document.getElementById('menuDropdown').classList.remove('open');
-}
-
-document.getElementById('menuBtn').addEventListener('click', e => {
-  e.stopPropagation();
-  toggleMenu();
-});
-
-document.addEventListener('click', e => {
-  const dd = document.getElementById('menuDropdown');
-  if (dd.classList.contains('open') && !e.target.closest('.menu-wrapper')) {
-    closeMenu();
-  }
-});
-
-// ===================================================================
 // SSE
 // ===================================================================
 let evtSource = null;
@@ -1507,16 +1717,40 @@ function updateDownload(id, patch) {
 // ===================================================================
 // Fetch formats
 // ===================================================================
-async function fetchFormats() {
-  const url = document.getElementById('urlInput').value.trim();
-  if (!url) return;
+async function ensureFormatExitNodes() {
+  const row = document.getElementById('formatExitRow');
+  if (row) row.style.display = '';
+  try {
+    const resp = await apiFetch('/api/settings/vpn');
+    if (!resp.ok) return;
+    const data = await resp.json();
+    const nodes = data.exit_nodes || [];
+    const def = data.exit_node || '';
+    const sel = document.getElementById('formatExitSelect');
+    if (!sel) return;
+    const prev = sel.value;
+    sel.innerHTML = '<option value="">Default (' + escapeHtml(def || 'from config') + ')</option>' +
+      nodes.map(n =>
+        '<option value="' + escapeAttr(n.ip) + '">' + escapeHtml(n.name + ' (' + n.ip + ')') + '</option>'
+      ).join('');
+    if (prev && [...sel.options].some(o => o.value === prev)) sel.value = prev;
+    else sel.value = '';
+  } catch (e) {}
+}
 
+async function fetchFormatsForUrl(url) {
   const btn = document.getElementById('fetchBtn');
   btn.disabled = true;
   btn.innerHTML = '<span class="spinner"></span>';
 
   try {
-    const resp = await apiFetch('/api/formats?url=' + encodeURIComponent(url));
+    await ensureFormatExitNodes();
+    let q = '/api/formats?url=' + encodeURIComponent(url);
+    const exitSel = document.getElementById('formatExitSelect');
+    if (exitSel && exitSel.value) {
+      q += '&exit_node=' + encodeURIComponent(exitSel.value);
+    }
+    const resp = await apiFetch(q);
     if (resp.status === 401) { doLogout(); return; }
     if (!resp.ok) {
       const err = await resp.json();
@@ -1528,12 +1762,24 @@ async function fetchFormats() {
     state.fetchedUrl = url;
     state.selectedFormat = null;
     renderFormats();
+    autoSelectCategory(url);
   } catch (e) {
     alert('Network error: ' + e.message);
   } finally {
     btn.disabled = false;
     btn.textContent = 'Fetch';
   }
+}
+
+async function fetchFormats() {
+  const url = document.getElementById('urlInput').value.trim();
+  if (!url) return;
+  await fetchFormatsForUrl(url);
+}
+
+async function onFormatExitChange() {
+  if (!state.fetchedUrl) return;
+  await fetchFormatsForUrl(state.fetchedUrl);
 }
 
 function renderFormats() {
@@ -1618,6 +1864,23 @@ function updateFormatCategorySelect() {
     state.categories.map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join('');
 }
 
+function detectPlatformCategory(url) {
+  if (/youtube\.com|youtu\.be/i.test(url)) return 'YouTube';
+  if (/instagram\.com/i.test(url)) return 'Instagram';
+  if (/twitter\.com|x\.com/i.test(url)) return 'X';
+  if (/facebook\.com|fb\.watch/i.test(url)) return 'Facebook';
+  return null;
+}
+
+function autoSelectCategory(url) {
+  const platform = detectPlatformCategory(url);
+  if (!platform) return;
+  const match = state.categories.find(c => c.name.toLowerCase() === platform.toLowerCase());
+  if (match) {
+    document.getElementById('formatCategorySelect').value = match.id;
+  }
+}
+
 function closeFormats() {
   state.formats = null;
   state.selectedFormat = null;
@@ -1636,10 +1899,13 @@ async function startDownload() {
   const categoryId = document.getElementById('formatCategorySelect').value || null;
 
   try {
+    const body = { url: state.fetchedUrl, format_id: state.selectedFormat, category_id: categoryId };
+    const ex = document.getElementById('formatExitSelect');
+    if (ex && ex.value) body.exit_node = ex.value;
     const resp = await apiFetch('/api/downloads', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ url: state.fetchedUrl, format_id: state.selectedFormat, category_id: categoryId }),
+      body: JSON.stringify(body),
     });
     if (resp.status === 401) { doLogout(); return; }
     if (!resp.ok) {
@@ -1665,8 +1931,13 @@ let actionSheetScrollY = 0;
 function showDeleteConfirm(id) {
   const d = state.downloads.get(id);
   const title = d ? (d.title || d.filename || 'this download') : 'this download';
-  document.getElementById('deleteConfirmMessage').textContent =
-    `"${title.substring(0, 50)}${title.length > 50 ? '...' : ''}" will be permanently deleted.`;
+  const shortTitle = title.substring(0, 50) + (title.length > 50 ? '...' : '');
+  const isRemoveIncomplete = d && d.status !== 'failed' && d.status !== 'completed';
+  document.getElementById('deleteConfirmTitle').textContent = isRemoveIncomplete ? 'Cancel download' : 'Delete download';
+  document.getElementById('deleteConfirmMessage').textContent = isRemoveIncomplete
+    ? `Stop and remove "${shortTitle}"?`
+    : `"${shortTitle}" will be permanently deleted.`;
+  document.getElementById('deleteConfirmBtn').textContent = isRemoveIncomplete ? 'Remove' : 'Delete';
   pendingDeleteId = id;
   actionSheetScrollY = window.scrollY;
   document.body.classList.add('action-sheet-open');
@@ -1747,6 +2018,10 @@ function downloadFile(id) {
 // Save action sheet
 let pendingSaveId = null;
 
+function saveDownload(id) {
+  showSaveSheet(id);
+}
+
 function showSaveSheet(id) {
   const d = state.downloads.get(id);
   if (!d) return;
@@ -1814,6 +2089,16 @@ document.getElementById('saveActionSheet').onclick = e => {
   if (e.target === document.getElementById('saveActionSheet')) closeSaveSheet();
 };
 
+document.getElementById('catRenameSheet').onclick = e => {
+  if (e.target === document.getElementById('catRenameSheet')) closeCatRenameSheet();
+};
+document.getElementById('catDeleteSheet').onclick = e => {
+  if (e.target === document.getElementById('catDeleteSheet')) closeCatDeleteSheet();
+};
+document.getElementById('catRenameInput').addEventListener('keydown', e => {
+  if (e.key === 'Enter') confirmRenameCategory();
+});
+
 async function shareOrDownload(id) {
   // Show action sheet for save/share options
   showSaveSheet(id);
@@ -1867,6 +2152,7 @@ async function updateDownloadCategory(downloadId, categoryId) {
     });
     const d = state.downloads.get(downloadId);
     if (d) d.category_id = categoryId || null;
+    renderDownloads();
   } catch (e) {
     console.error('Failed to update category', e);
   }
@@ -2033,6 +2319,9 @@ function renderDownloads() {
     if (d.category_id && catMap[d.category_id]) {
       badges += '<span class="category-badge">' + escapeHtml(catMap[d.category_id]) + '</span>';
     }
+    if (d.exit_node) {
+      badges += '<span class="category-badge">' + escapeHtml('Exit: ' + d.exit_node) + '</span>';
+    }
     badges += '<span class="dl-status ' + d.status + '">' + statusLabel + '</span>';
 
     // Progress section (only for active non-live)
@@ -2060,18 +2349,20 @@ function renderDownloads() {
       '</div>';
     }
 
-    // Actions — simplified since swipe gestures handle save/delete for completed
     let actions = '';
     if (isCompleted) {
-      // Small share link toggle (swipe handles save/delete)
+      actions += '<button class="btn btn-ghost btn-sm" onclick="saveDownload(\'' + d.id + '\')">Save</button>';
       actions += '<button class="btn btn-ghost btn-sm" onclick="toggleSharePanel(\'' + d.id + '\')">Share Link</button>';
+      actions += '<button class="btn btn-danger btn-sm" onclick="deleteDownload(\'' + d.id + '\')">Delete</button>';
     }
     if (isLive) {
       actions += '<button class="btn btn-danger btn-sm" onclick="stopLiveDownload(\'' + d.id + '\')">Stop</button>';
-    }
-    if (isFailed) {
+      actions += '<button class="btn btn-ghost btn-sm" onclick="deleteDownload(\'' + d.id + '\')">Cancel</button>';
+    } else if (isFailed) {
       actions += '<button class="btn btn-ghost btn-sm" onclick="retryDownload(\'' + d.id + '\')">Retry</button>';
       actions += '<button class="btn btn-danger btn-sm" onclick="deleteDownload(\'' + d.id + '\')">Delete</button>';
+    } else if (!isCompleted) {
+      actions += '<button class="btn btn-ghost btn-sm" onclick="deleteDownload(\'' + d.id + '\')">Cancel</button>';
     }
 
     // Category selector for completed
@@ -2266,24 +2557,68 @@ document.getElementById('sortBar').addEventListener('change', e => {
   renderDownloads();
 });
 
+let _cachedChipOrder = null;
+
+function getChipOrder() {
+  return _cachedChipOrder;
+}
+
+function saveChipOrder(order) {
+  _cachedChipOrder = order;
+  apiFetch('/api/settings', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ chip_order: order }),
+  }).catch(() => {});
+}
+
+function buildOrderedChips() {
+  const chips = [
+    { key: '__all__', label: 'All', filterId: null },
+    { key: '__uncat__', label: 'Uncategorized', filterId: '' },
+    ...state.categories.map(c => ({ key: c.id, label: c.name, filterId: c.id })),
+  ];
+  const savedOrder = getChipOrder();
+  if (!savedOrder) return chips;
+
+  const chipMap = {};
+  chips.forEach(c => { chipMap[c.key] = c; });
+  const ordered = [];
+  savedOrder.forEach(k => {
+    if (chipMap[k]) { ordered.push(chipMap[k]); delete chipMap[k]; }
+  });
+  Object.values(chipMap).forEach(c => ordered.push(c));
+  return ordered;
+}
+
 function renderFilterChips() {
   const bar = document.getElementById('filterBar');
   if (state.categories.length === 0) {
     bar.innerHTML = '';
     return;
   }
-  bar.innerHTML =
-    '<span class="filter-chip' + (state.filterCategory === null ? ' active' : '') + '" onclick="setFilter(null)">All</span>' +
-    '<span class="filter-chip' + (state.filterCategory === '' ? ' active' : '') + '" onclick="setFilter(\'\')">Uncategorized</span>' +
-    state.categories.map(c =>
-      '<span class="filter-chip' + (state.filterCategory === c.id ? ' active' : '') + '" onclick="setFilter(\'' + c.id + '\')">' + escapeHtml(c.name) + '</span>'
-    ).join('');
+  const chips = buildOrderedChips();
+  bar.innerHTML = chips.map(c => {
+    const active = state.filterCategory === c.filterId;
+    const onclick = c.filterId === null ? 'setFilter(null)' : "setFilter('" + c.filterId + "')";
+    return '<span class="filter-chip' + (active ? ' active' : '') + '" onclick="' + onclick + '">' + escapeHtml(c.label) + '</span>';
+  }).join('');
 }
 
 function setFilter(categoryId) {
   state.filterCategory = categoryId;
+  saveDefaultCategory(categoryId);
   renderFilterChips();
   renderDownloads();
+}
+
+function saveDefaultCategory(categoryId) {
+  const val = categoryId === null ? '__all__' : categoryId;
+  apiFetch('/api/settings', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ default_category: val }),
+  }).catch(() => {});
 }
 
 // ===================================================================
@@ -2294,11 +2629,37 @@ async function loadCategories() {
     const resp = await apiFetch('/api/categories');
     if (resp.status === 401) return;
     state.categories = await resp.json();
+    if (!state._defaultCategoryLoaded) {
+      await loadDefaultCategory();
+    }
     renderFilterChips();
     updateFormatCategorySelect();
   } catch (e) {
     console.error('Failed to load categories', e);
   }
+}
+
+async function loadDefaultCategory() {
+  try {
+    const resp = await apiFetch('/api/settings');
+    if (!resp.ok) return;
+    const data = await resp.json();
+
+    if (data.chip_order && Array.isArray(data.chip_order)) {
+      _cachedChipOrder = data.chip_order;
+    }
+
+    const saved = data.default_category;
+    if (saved !== null && saved !== undefined) {
+      if (saved === '') {
+        state.filterCategory = '';
+      } else {
+        const exists = state.categories.some(c => c.id === saved);
+        if (exists) state.filterCategory = saved;
+      }
+    }
+    state._defaultCategoryLoaded = true;
+  } catch (e) {}
 }
 
 async function createCategory() {
@@ -2326,30 +2687,77 @@ async function createCategory() {
   }
 }
 
-async function renameCategory(id) {
-  const name = prompt('New name:');
-  if (!name || !name.trim()) return;
+let pendingCatRenameId = null;
+let pendingCatDeleteId = null;
+
+function renameCategory(id) {
+  const cat = state.categories.find(c => c.id === id);
+  if (!cat) return;
+  pendingCatRenameId = id;
+  const input = document.getElementById('catRenameInput');
+  input.value = cat.name;
+  actionSheetScrollY = window.scrollY;
+  document.body.classList.add('action-sheet-open');
+  document.body.style.top = `-${actionSheetScrollY}px`;
+  document.getElementById('catRenameSheet').classList.add('visible');
+  setTimeout(() => { input.focus(); input.select(); }, 200);
+}
+
+function closeCatRenameSheet() {
+  pendingCatRenameId = null;
+  document.getElementById('catRenameSheet').classList.remove('visible');
+  document.body.classList.remove('action-sheet-open');
+  document.body.style.top = '';
+  window.scrollTo(0, actionSheetScrollY);
+}
+
+async function confirmRenameCategory() {
+  const id = pendingCatRenameId;
+  const name = document.getElementById('catRenameInput').value.trim();
+  closeCatRenameSheet();
+  if (!id || !name) return;
   try {
     const resp = await apiFetch('/api/categories/' + id, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: name.trim() }),
+      body: JSON.stringify({ name }),
     });
     if (!resp.ok) {
       const err = await resp.json();
-      alert(err.detail || 'Failed to rename');
+      showTabAlert('generalAlert', err.detail || 'Failed to rename', 'error');
       return;
     }
     await loadCategories();
     renderCategoryManager();
     renderDownloads();
   } catch (e) {
-    alert('Failed to rename: ' + e.message);
+    showTabAlert('generalAlert', 'Failed to rename: ' + e.message, 'error');
   }
 }
 
-async function deleteCategory(id) {
-  if (!confirm('Delete this category? Downloads will become uncategorized.')) return;
+function deleteCategory(id) {
+  const cat = state.categories.find(c => c.id === id);
+  if (!cat) return;
+  pendingCatDeleteId = id;
+  document.getElementById('catDeleteTitle').textContent = 'Delete "' + cat.name + '"';
+  actionSheetScrollY = window.scrollY;
+  document.body.classList.add('action-sheet-open');
+  document.body.style.top = `-${actionSheetScrollY}px`;
+  document.getElementById('catDeleteSheet').classList.add('visible');
+}
+
+function closeCatDeleteSheet() {
+  pendingCatDeleteId = null;
+  document.getElementById('catDeleteSheet').classList.remove('visible');
+  document.body.classList.remove('action-sheet-open');
+  document.body.style.top = '';
+  window.scrollTo(0, actionSheetScrollY);
+}
+
+async function confirmDeleteCategory() {
+  const id = pendingCatDeleteId;
+  closeCatDeleteSheet();
+  if (!id) return;
   try {
     await apiFetch('/api/categories/' + id, { method: 'DELETE' });
     if (state.filterCategory === id) state.filterCategory = null;
@@ -2357,32 +2765,147 @@ async function deleteCategory(id) {
     renderCategoryManager();
     await loadDownloads();
   } catch (e) {
-    alert('Failed to delete: ' + e.message);
+    showTabAlert('generalAlert', 'Failed to delete: ' + e.message, 'error');
   }
 }
 
 function openCategoryManager() {
-  document.getElementById('categoryModal').classList.add('visible');
-  renderCategoryManager();
+  openSettings();
 }
 
 function closeCategoryManager() {
-  document.getElementById('categoryModal').classList.remove('visible');
+  closeSettings();
 }
 
 function renderCategoryManager() {
   const list = document.getElementById('categoryList');
-  if (state.categories.length === 0) {
-    list.innerHTML = '<div style="color:#525252;font-size:13px;padding:8px 0;">No categories yet.</div>';
-    return;
+  const chips = buildOrderedChips();
+
+  list.innerHTML = chips.map(c => {
+    const isVirtual = c.key === '__all__' || c.key === '__uncat__';
+    const actions = isVirtual ? '' :
+      '<button class="btn btn-ghost btn-sm" onclick="renameCategory(\'' + c.key + '\')">Rename</button>' +
+      '<button class="btn btn-danger btn-sm" onclick="deleteCategory(\'' + c.key + '\')">Delete</button>';
+    return '<div class="cat-row" data-cat-key="' + c.key + '">' +
+      '<span class="drag-handle">&#9776;</span>' +
+      '<span style="flex:1;font-size:14px;">' + escapeHtml(c.label) + '</span>' +
+      actions +
+    '</div>';
+  }).join('');
+
+  initCategoryDragDrop(list);
+}
+
+let _catDragState = null;
+
+function initCategoryDragDrop(container) {
+  container.querySelectorAll('.drag-handle').forEach(handle => {
+    handle.addEventListener('pointerdown', e => {
+      e.preventDefault();
+      const row = handle.closest('.cat-row');
+      if (!row) return;
+
+      handle.setPointerCapture(e.pointerId);
+      row.classList.add('dragging');
+
+      _catDragState = {
+        row: row,
+        container: container,
+        pointerId: e.pointerId,
+        startY: e.clientY,
+      };
+    });
+
+    handle.addEventListener('pointermove', e => {
+      if (!_catDragState || _catDragState.pointerId !== e.pointerId) return;
+      e.preventDefault();
+
+      const rows = [..._catDragState.container.querySelectorAll('.cat-row')];
+      rows.forEach(r => {
+        r.classList.remove('drag-over-above', 'drag-over-below');
+      });
+
+      const target = getDropTarget(rows, e.clientY, _catDragState.row);
+      if (target) {
+        const rect = target.el.getBoundingClientRect();
+        const mid = rect.top + rect.height / 2;
+        if (e.clientY < mid) {
+          target.el.classList.add('drag-over-above');
+        } else {
+          target.el.classList.add('drag-over-below');
+        }
+      }
+    });
+
+    handle.addEventListener('pointerup', e => {
+      if (!_catDragState || _catDragState.pointerId !== e.pointerId) return;
+      e.preventDefault();
+
+      const { row, container } = _catDragState;
+      const rows = [...container.querySelectorAll('.cat-row')];
+
+      rows.forEach(r => {
+        r.classList.remove('drag-over-above', 'drag-over-below', 'dragging');
+      });
+
+      const target = getDropTarget(rows, e.clientY, row);
+      if (target && target.el !== row) {
+        const rect = target.el.getBoundingClientRect();
+        const mid = rect.top + rect.height / 2;
+        if (e.clientY < mid) {
+          target.el.before(row);
+        } else {
+          target.el.after(row);
+        }
+        saveCategoryOrder(container);
+      }
+
+      _catDragState = null;
+    });
+
+    handle.addEventListener('pointercancel', () => {
+      if (!_catDragState) return;
+      _catDragState.row.classList.remove('dragging');
+      _catDragState.container.querySelectorAll('.cat-row').forEach(r => {
+        r.classList.remove('drag-over-above', 'drag-over-below');
+      });
+      _catDragState = null;
+    });
+  });
+}
+
+function getDropTarget(rows, clientY, dragRow) {
+  let closest = null;
+  let closestDist = Infinity;
+  for (const r of rows) {
+    if (r === dragRow) continue;
+    const rect = r.getBoundingClientRect();
+    const mid = rect.top + rect.height / 2;
+    const dist = Math.abs(clientY - mid);
+    if (dist < closestDist) {
+      closestDist = dist;
+      closest = { el: r };
+    }
   }
-  list.innerHTML = state.categories.map(c =>
-    '<div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid #2a2a2a;">' +
-      '<span style="flex:1;font-size:14px;">' + escapeHtml(c.name) + '</span>' +
-      '<button class="btn btn-ghost btn-sm" onclick="renameCategory(\'' + c.id + '\')">Rename</button>' +
-      '<button class="btn btn-danger btn-sm" onclick="deleteCategory(\'' + c.id + '\')">Delete</button>' +
-    '</div>'
-  ).join('');
+  return closest;
+}
+
+async function saveCategoryOrder(container) {
+  const keys = [...container.querySelectorAll('.cat-row')].map(r => r.dataset.catKey);
+  saveChipOrder(keys);
+
+  const dbIds = keys.filter(k => k !== '__all__' && k !== '__uncat__');
+  try {
+    await apiFetch('/api/categories/reorder', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ order: dbIds }),
+    });
+  } catch (e) {
+    console.error('Failed to save category order', e);
+  }
+
+  await loadCategories();
 }
 
 document.getElementById('newCategoryName').addEventListener('keydown', e => {
@@ -2495,29 +3018,41 @@ function fallbackCopy(text, btn) {
 }
 
 // ===================================================================
-// Settings — tabbed
+// Settings
 // ===================================================================
-function switchSettingsTab(tab) {
-  document.querySelectorAll('.settings-tab-content').forEach(t => t.classList.remove('active'));
-  document.getElementById('settingsTab-' + tab).classList.add('active');
-  document.querySelectorAll('#settingsTabs .filter-chip').forEach(c => {
-    c.classList.toggle('active', c.dataset.tab === tab);
+function toggleSettingsSection(name) {
+  const modal = document.getElementById('settingsModal');
+  const sections = modal.querySelectorAll('.settings-section');
+  sections.forEach(s => {
+    if (s.dataset.section === name) {
+      s.classList.toggle('open');
+    } else {
+      s.classList.remove('open');
+    }
   });
+}
 
-  // Lazy load VPN data
-  if (tab === 'vpn' && !state.settingsVpnLoaded) {
-    loadVpnSettings();
-  }
+function collapseAllSettingsSections() {
+  document.querySelectorAll('#settingsModal .settings-section').forEach(s => {
+    s.classList.remove('open');
+  });
+}
 
-  // Initialize security settings UI
-  if (tab === 'security') {
-    initSecuritySettings();
+async function openSettingsVpn() {
+  await openSettings();
+  toggleSettingsSection('vpn');
+  const vpnSection = document.getElementById('settingsSectionVpn');
+  if (vpnSection) {
+    setTimeout(() => vpnSection.scrollIntoView({ behavior: 'smooth' }), 50);
   }
 }
 
 async function openSettings() {
-  document.getElementById('settingsModal').classList.add('visible');
-  switchSettingsTab('general');
+  const modal = document.getElementById('settingsModal');
+  modal.classList.add('visible');
+  modal.querySelector('.modal').scrollTop = 0;
+  collapseAllSettingsSections();
+
   state.settingsVpnLoaded = false;
 
   try {
@@ -2527,10 +3062,68 @@ async function openSettings() {
       document.getElementById('settingsPublicUrl').value = data.public_url || '';
     }
   } catch (e) {}
+  await loadCookiesStatus();
+
+  loadVpnSettings();
+  initSecuritySettings();
+  renderCategoryManager();
 }
 
 function closeSettings() {
   document.getElementById('settingsModal').classList.remove('visible');
+}
+
+async function loadCookiesStatus() {
+  const el = document.getElementById('cookiesStatus');
+  if (!el) return;
+  try {
+    const resp = await apiFetch('/api/settings/cookies');
+    if (!resp.ok) {
+      el.textContent = '';
+      return;
+    }
+    const data = await resp.json();
+    el.textContent = data.present
+      ? ('Cookies file: ' + formatBytes(data.size))
+      : 'No cookies file uploaded.';
+  } catch (e) {
+    el.textContent = '';
+  }
+}
+
+async function uploadCookiesFile(ev) {
+  const f = ev.target.files && ev.target.files[0];
+  ev.target.value = '';
+  if (!f) return;
+  const fd = new FormData();
+  fd.append('file', f);
+  try {
+    const resp = await apiFetch('/api/settings/cookies', { method: 'POST', body: fd });
+    if (resp.ok) {
+      showTabAlert('generalAlert', 'Cookies saved.', 'success');
+      await loadCookiesStatus();
+    } else {
+      const err = await resp.json();
+      showTabAlert('generalAlert', err.detail || 'Upload failed.', 'error');
+    }
+  } catch (e) {
+    showTabAlert('generalAlert', 'Network error.', 'error');
+  }
+}
+
+async function clearCookiesFile() {
+  try {
+    const resp = await apiFetch('/api/settings/cookies', { method: 'DELETE' });
+    if (resp.ok) {
+      showTabAlert('generalAlert', 'Cookies cleared.', 'success');
+      await loadCookiesStatus();
+    } else {
+      const err = await resp.json();
+      showTabAlert('generalAlert', err.detail || 'Failed to clear.', 'error');
+    }
+  } catch (e) {
+    showTabAlert('generalAlert', 'Network error.', 'error');
+  }
 }
 
 async function saveGeneralSettings() {
@@ -2597,15 +3190,21 @@ async function loadVpnSettings() {
 
     const list = document.getElementById('settingsExitNodeList');
     const nodes = data.exit_nodes || [];
-    state.settingsSelectedExitNode = data.exit_node || null;
+    const isActive = state.vpn && state.vpn.exit_node_active;
+    state.settingsSelectedExitNode = isActive ? (data.exit_node || null) : null;
     state.settingsVpnLoaded = true;
 
-    if (nodes.length === 0) {
-      list.innerHTML = '<div class="node-empty">No exit nodes found.</div>';
-      return;
-    }
+    // "Direct" option first, then exit nodes
+    let html = `
+      <label class="node-option${!state.settingsSelectedExitNode ? ' selected' : ''}" data-ip="">
+        <input type="radio" name="settingsExitNode" value="" ${!state.settingsSelectedExitNode ? 'checked' : ''}>
+        <div>
+          <div class="node-name">Direct connection</div>
+          <div class="node-ip">No VPN — use host network</div>
+        </div>
+      </label>`;
 
-    list.innerHTML = nodes.map(n => `
+    html += nodes.map(n => `
       <label class="node-option${n.ip === state.settingsSelectedExitNode ? ' selected' : ''}" data-ip="${n.ip}">
         <input type="radio" name="settingsExitNode" value="${n.ip}" ${n.ip === state.settingsSelectedExitNode ? 'checked' : ''}>
         <div>
@@ -2616,12 +3215,14 @@ async function loadVpnSettings() {
       </label>
     `).join('');
 
+    list.innerHTML = html;
+
     list.querySelectorAll('.node-option').forEach(el => {
       el.addEventListener('click', () => {
         list.querySelectorAll('.node-option').forEach(o => o.classList.remove('selected'));
         el.classList.add('selected');
         el.querySelector('input[type="radio"]').checked = true;
-        state.settingsSelectedExitNode = el.dataset.ip;
+        state.settingsSelectedExitNode = el.dataset.ip || null;
       });
     });
   } catch (e) {
@@ -2662,45 +3263,35 @@ async function saveVpnSettings() {
   }
 }
 
-async function changeExitNode() {
+async function saveRoutingChoice() {
   const exitNode = state.settingsSelectedExitNode;
-  if (!exitNode) {
-    showTabAlert('vpnAlert', 'Please select an exit node.', 'error');
-    return;
-  }
 
   try {
-    const resp = await apiFetch('/api/vpn/exit-node', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ exit_node: exitNode }),
-    });
-    if (resp.ok) {
-      showTabAlert('vpnAlert', 'Exit node changed successfully.', 'success');
-      loadVPN();
-      refreshExternalIp();
+    if (exitNode) {
+      const resp = await apiFetch('/api/vpn/exit-node', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ exit_node: exitNode }),
+      });
+      if (resp.ok) {
+        showTabAlert('vpnAlert', 'Now routing through exit node.', 'success');
+      } else {
+        const err = await resp.json();
+        showTabAlert('vpnAlert', err.detail || 'Failed to set exit node.', 'error');
+        return;
+      }
     } else {
-      const err = await resp.json();
-      showTabAlert('vpnAlert', err.detail || 'Failed to change exit node.', 'error');
+      const resp = await apiFetch('/api/vpn/disconnect', { method: 'POST' });
+      if (resp.ok) {
+        showTabAlert('vpnAlert', 'Switched to direct connection.', 'success');
+      } else {
+        const err = await resp.json();
+        showTabAlert('vpnAlert', err.detail || 'Failed to switch to direct connection.', 'error');
+        return;
+      }
     }
-  } catch (e) {
-    showTabAlert('vpnAlert', 'Network error.', 'error');
-  }
-}
-
-async function disconnectVpn() {
-  if (!confirm('Disconnect from VPN? Downloads will not use the exit node.')) return;
-
-  try {
-    const resp = await apiFetch('/api/vpn/disconnect', { method: 'POST' });
-    if (resp.ok) {
-      showTabAlert('vpnAlert', 'VPN disconnected.', 'success');
-      loadVPN();
-      refreshExternalIp();
-    } else {
-      const err = await resp.json();
-      showTabAlert('vpnAlert', err.detail || 'Failed to disconnect.', 'error');
-    }
+    loadVPN();
+    refreshExternalIp();
   } catch (e) {
     showTabAlert('vpnAlert', 'Network error.', 'error');
   }
@@ -2722,6 +3313,11 @@ async function loadVPN() {
 
 function renderVPN() {
   const dot = document.getElementById('vpnDot');
+  if (!dot) return;
+  if (!state.vpn.exit_node_active) {
+    dot.className = 'vpn-dot offline';
+    return;
+  }
   const online = state.vpn.connected && state.vpn.exit_node_online;
   dot.className = 'vpn-dot' + (online ? ' online' : ' offline');
 }
@@ -2733,10 +3329,12 @@ async function refreshExternalIp() {
   if (!el) return;
   try {
     const resp = await apiFetch('/api/vpn/ip');
-    if (resp.ok) {
-      const data = await resp.json();
-      el.textContent = data.ip || '--';
+    if (!resp.ok) {
+      el.textContent = '--';
+      return;
     }
+    const data = await resp.json();
+    el.textContent = data.ip || '--';
   } catch (e) {
     el.textContent = '--';
   }
@@ -2784,13 +3382,13 @@ document.getElementById('urlInput').addEventListener('keydown', e => {
 // ===================================================================
 // PIN Lock
 // ===================================================================
-const PIN_STORAGE_KEY = 'media-dl-pin-hash';
 const BIOMETRIC_KEY = 'media-dl-biometric-enabled';
 const BIOMETRIC_CRED_KEY = 'media-dl-biometric-cred';
 const VIDEO_NAV_KEY = 'media-dl-video-nav';
 let pinEntryBuffer = '';
 let isLocked = false;
 let lastVisibleTime = Date.now();
+let _cachedPinHash = null;
 
 function simplePinHash(pin) {
   let hash = 0;
@@ -2804,7 +3402,7 @@ function simplePinHash(pin) {
 }
 
 function isPinEnabled() {
-  return !!localStorage.getItem(PIN_STORAGE_KEY);
+  return !!_cachedPinHash;
 }
 
 function isBiometricEnabled() {
@@ -2821,10 +3419,10 @@ function lockApp() {
 
   const biometricKey = document.getElementById('biometricKey');
   if (isBiometricEnabled()) {
-    biometricKey.style.display = 'flex';
+    biometricKey.style.visibility = 'visible';
     setTimeout(() => attemptBiometricUnlock(), 300);
   } else {
-    biometricKey.style.display = 'none';
+    biometricKey.style.visibility = 'hidden';
   }
 }
 
@@ -2855,8 +3453,7 @@ function showPinError() {
 }
 
 function verifyPin(pin) {
-  const storedHash = localStorage.getItem(PIN_STORAGE_KEY);
-  return storedHash === simplePinHash(pin);
+  return _cachedPinHash === simplePinHash(pin);
 }
 
 function handlePinKeyPress(key) {
@@ -2933,43 +3530,47 @@ function isReturningFromVideo() {
   return false;
 }
 
-// Visibility change detection for auto-lock
+function showPrivacyScreen() {
+  if (!isPinEnabled()) return;
+  const ps = document.getElementById('privacyScreen');
+  ps.style.display = 'flex';
+}
+
+function hidePrivacyScreen() {
+  document.getElementById('privacyScreen').style.display = 'none';
+}
+
+function lockImmediately() {
+  if (!isPinEnabled() || isLocked) return;
+  lockApp();
+  showPrivacyScreen();
+}
+
 document.addEventListener('visibilitychange', () => {
-  // Refresh IP when app becomes visible
-  if (document.visibilityState === 'visible' && authToken) {
-    refreshExternalIp();
-    loadVPN();
-  }
-
-  if (!isPinEnabled()) return;
-
-  if (document.visibilityState === 'hidden') {
+  if (document.visibilityState === 'visible') {
+    hidePrivacyScreen();
+    if (authToken) { refreshExternalIp(); loadVPN(); }
+  } else {
     lastVisibleTime = Date.now();
-  } else if (document.visibilityState === 'visible') {
-    // Skip lock if returning from video playback
-    if (isReturningFromVideo()) {
-      lastVisibleTime = Date.now();
-      return;
-    }
-    const elapsed = Date.now() - lastVisibleTime;
-    if (elapsed > 1000 && !isLocked) {
-      lockApp();
-    }
+    lockImmediately();
   }
 });
 
-// Page focus for iOS PWA
+window.addEventListener('pagehide', () => { lockImmediately(); });
+
 window.addEventListener('pageshow', (e) => {
+  hidePrivacyScreen();
   if (!isPinEnabled()) return;
-  // Skip lock if returning from video playback
-  if (isReturningFromVideo()) {
-    lastVisibleTime = Date.now();
-    return;
-  }
-  if (e.persisted || (Date.now() - lastVisibleTime > 1000)) {
-    lockApp();
-  }
+  if (isReturningFromVideo()) { lastVisibleTime = Date.now(); return; }
+  if (e.persisted || (Date.now() - lastVisibleTime > 1000)) lockApp();
 });
+
+window.addEventListener('freeze', () => { lockImmediately(); });
+window.addEventListener('resume', () => { hidePrivacyScreen(); });
+
+// Covers partial swipe-up / app switcher preview on iOS
+window.addEventListener('blur', () => { lockImmediately(); });
+window.addEventListener('focus', () => { hidePrivacyScreen(); });
 
 // Security settings UI
 async function initSecuritySettings() {
@@ -2989,45 +3590,95 @@ async function initSecuritySettings() {
   document.getElementById('biometricGroup').style.display = (pinEnabled && biometricsAvailable) ? 'block' : 'none';
 }
 
+let _pinSetupBuffer = '';
+let _pinSetupPhase = 'enter'; // 'enter' or 'confirm'
+let _pinSetupFirstPin = '';
+
 function togglePinLock() {
   const enabled = document.getElementById('pinEnabled').checked;
   if (enabled) {
-    document.getElementById('pinSetupGroup').style.display = 'block';
-    document.getElementById('pinSetupInput').value = '';
-    document.getElementById('pinConfirmInput').value = '';
-    document.getElementById('pinSetupInput').focus();
+    _startPinSetup();
   } else {
     removePinLock();
   }
 }
 
-function cancelPinSetup() {
-  document.getElementById('pinEnabled').checked = isPinEnabled();
-  document.getElementById('pinSetupGroup').style.display = 'none';
-  document.getElementById('pinSetupInput').value = '';
-  document.getElementById('pinConfirmInput').value = '';
+function _startPinSetup() {
+  _pinSetupBuffer = '';
+  _pinSetupPhase = 'enter';
+  _pinSetupFirstPin = '';
+  document.getElementById('pinSetupGroup').style.display = 'block';
+  document.getElementById('pinSetupLabel').textContent = 'Enter new PIN';
+  document.getElementById('pinSetupError').textContent = '';
+  _updatePinSetupDots();
 }
 
-async function savePinSettings() {
-  const pin = document.getElementById('pinSetupInput').value;
-  const confirm = document.getElementById('pinConfirmInput').value;
+function _updatePinSetupDots() {
+  const dots = document.querySelectorAll('#pinSetupDots .pin-dot');
+  dots.forEach((dot, i) => {
+    dot.classList.toggle('filled', i < _pinSetupBuffer.length);
+    dot.classList.remove('error');
+  });
+}
 
-  if (!/^\d{4}$/.test(pin)) {
-    showTabAlert('securityAlert', 'PIN must be exactly 4 digits.', 'error');
+function _showPinSetupError(msg) {
+  const dots = document.querySelectorAll('#pinSetupDots .pin-dot');
+  dots.forEach(dot => dot.classList.add('error'));
+  document.getElementById('pinSetupError').textContent = msg;
+  _pinSetupBuffer = '';
+  setTimeout(() => {
+    _updatePinSetupDots();
+    document.getElementById('pinSetupError').textContent = '';
+  }, 1000);
+}
+
+function _handlePinSetupKey(key) {
+  if (key === 'delete') {
+    _pinSetupBuffer = _pinSetupBuffer.slice(0, -1);
+    _updatePinSetupDots();
     return;
   }
-  if (pin !== confirm) {
-    showTabAlert('securityAlert', 'PINs do not match.', 'error');
-    return;
-  }
+  if (!/^[0-9]$/.test(key) || _pinSetupBuffer.length >= 4) return;
 
-  localStorage.setItem(PIN_STORAGE_KEY, simplePinHash(pin));
+  _pinSetupBuffer += key;
+  _updatePinSetupDots();
+
+  if (_pinSetupBuffer.length === 4) {
+    setTimeout(() => {
+      if (_pinSetupPhase === 'enter') {
+        _pinSetupFirstPin = _pinSetupBuffer;
+        _pinSetupBuffer = '';
+        _pinSetupPhase = 'confirm';
+        document.getElementById('pinSetupLabel').textContent = 'Confirm PIN';
+        _updatePinSetupDots();
+      } else {
+        if (_pinSetupBuffer === _pinSetupFirstPin) {
+          _completePinSetup(_pinSetupBuffer);
+        } else {
+          _showPinSetupError('PINs do not match');
+          _pinSetupPhase = 'enter';
+          _pinSetupFirstPin = '';
+          setTimeout(() => {
+            document.getElementById('pinSetupLabel').textContent = 'Enter new PIN';
+          }, 1000);
+        }
+      }
+    }, 200);
+  }
+}
+
+async function _completePinSetup(pin) {
+  _cachedPinHash = simplePinHash(pin);
+  apiFetch('/api/settings', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ pin_hash: _cachedPinHash }),
+  }).catch(() => {});
   showTabAlert('securityAlert', 'PIN saved. App will lock when backgrounded.', 'success');
   document.getElementById('pinSetupGroup').style.display = 'none';
   document.getElementById('changePinGroup').style.display = 'block';
   lastVisibleTime = Date.now();
 
-  // Show biometric option if available
   let biometricsAvailable = false;
   if (window.isSecureContext && window.PublicKeyCredential) {
     try {
@@ -3037,15 +3688,30 @@ async function savePinSettings() {
   document.getElementById('biometricGroup').style.display = biometricsAvailable ? 'block' : 'none';
 }
 
-function showChangePinUI() {
-  document.getElementById('pinSetupGroup').style.display = 'block';
-  document.getElementById('pinSetupInput').value = '';
-  document.getElementById('pinConfirmInput').value = '';
-  document.getElementById('pinSetupInput').focus();
+function cancelPinSetup() {
+  document.getElementById('pinEnabled').checked = isPinEnabled();
+  document.getElementById('pinSetupGroup').style.display = 'none';
+  _pinSetupBuffer = '';
+  _pinSetupPhase = 'enter';
+  _pinSetupFirstPin = '';
 }
 
+function showChangePinUI() {
+  _startPinSetup();
+}
+
+document.getElementById('pinSetupKeypad').addEventListener('click', e => {
+  const key = e.target.closest('.pin-setup-key');
+  if (key) _handlePinSetupKey(key.dataset.key);
+});
+
 function removePinLock() {
-  localStorage.removeItem(PIN_STORAGE_KEY);
+  _cachedPinHash = null;
+  apiFetch('/api/settings', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ pin_hash: '' }),
+  }).catch(() => {});
   localStorage.removeItem(BIOMETRIC_KEY);
   localStorage.removeItem(BIOMETRIC_CRED_KEY);
   document.getElementById('pinEnabled').checked = false;
@@ -3115,9 +3781,6 @@ async function toggleBiometric() {
 // Close modals on overlay click
 document.getElementById('settingsModal').addEventListener('click', e => {
   if (e.target === document.getElementById('settingsModal')) closeSettings();
-});
-document.getElementById('categoryModal').addEventListener('click', e => {
-  if (e.target === document.getElementById('categoryModal')) closeCategoryManager();
 });
 
 // ===================================================================

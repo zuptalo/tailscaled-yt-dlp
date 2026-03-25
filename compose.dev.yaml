@@ -1,0 +1,27 @@
+services:
+  tailscaled-yt-dlp:
+    build: .
+    image: tailscaled-yt-dlp:dev
+    container_name: tailscaled-yt-dlp-dev
+    hostname: tailscaled-yt-dlp-dev
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun
+    ports:
+      - "8080:8080"
+    volumes:
+      # Mount source code for live reload
+      - ./app:/app
+      - ./static:/static
+      # Persistent data
+      - ./downloads:/downloads
+      - ./data:/data
+      - ./tailscale-state:/var/lib/tailscale
+      # Dev entrypoint
+      - ./scripts/dev-entrypoint.sh:/dev-entrypoint.sh:ro
+    entrypoint: ["/dev-entrypoint.sh"]
+    environment:
+      MAX_CONCURRENT_DOWNLOADS: "10"
+    tty: true
+    stdin_open: true

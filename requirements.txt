@@ -1,6 +1,7 @@
 yt-dlp[default]
 curl_cffi>=0.10,<0.14
 fastapi
+python-multipart
 uvicorn[standard]
 aiosqlite
 imageio-ffmpeg

@@ -1,4 +1,5 @@
 import asyncio
+import glob
 import json
 import logging
 import os
@@ -7,8 +8,9 @@ import ssl
 import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
+from functools import partial
 
-from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -26,7 +28,7 @@ from app.auth import (
     validate_token,
     verify_password,
 )
-from app.config import DOWNLOADS_DIR, THUMBNAILS_DIR, USER_AGENT
+from app.config import COOKIES_FILE, DOWNLOADS_DIR, THUMBNAILS_DIR, USER_AGENT
 from app.database import (
     delete_category as db_delete_category,
     delete_download,
@@ -40,6 +42,7 @@ from app.database import (
     insert_category as db_insert_category,
     insert_share_link as db_insert_share_link,
     list_categories as db_list_categories,
+    reorder_categories as db_reorder_categories,
     list_downloads,
     list_share_links as db_list_share_links,
     update_category as db_update_category,
@@ -227,9 +230,10 @@ async def setup_connect(req: SetupConnectRequest):
 class SetupCompleteRequest(BaseModel):
     username: str
     password: str
-    headscale_url: str
-    headscale_authkey: str
-    exit_node: str
+    use_vpn: bool = True
+    headscale_url: str | None = None
+    headscale_authkey: str | None = None
+    exit_node: str | None = None
 
 
 @app.post("/api/setup/complete")
@@ -242,25 +246,39 @@ async def setup_complete(req: SetupCompleteRequest):
     if len(req.password) < 4:
         raise HTTPException(status_code=400, detail="Password must be at least 4 characters")
 
-    # Configure exit node
-    success = await connect(req.headscale_url, req.headscale_authkey, req.exit_node)
-    if not success:
-        raise HTTPException(status_code=502, detail="Failed to set exit node")
-
-    # Hash password and save config
     password_hash, salt = hash_password(req.password)
-    save_config({
-        "username": req.username,
-        "password_hash": password_hash,
-        "password_salt": salt,
-        "headscale_url": req.headscale_url,
-        "headscale_authkey": req.headscale_authkey,
-        "exit_node": req.exit_node,
-    })
 
-    vpn_monitor.exit_node = req.exit_node
+    if req.use_vpn:
+        if not req.headscale_url or not req.headscale_authkey or not req.exit_node:
+            raise HTTPException(
+                status_code=400,
+                detail="Headscale URL, auth key, and exit node are required when VPN is enabled",
+            )
+        success = await connect(req.headscale_url, req.headscale_authkey, req.exit_node)
+        if not success:
+            raise HTTPException(status_code=502, detail="Failed to connect or set exit node")
+        save_config({
+            "username": req.username,
+            "password_hash": password_hash,
+            "password_salt": salt,
+            "use_vpn": True,
+            "headscale_url": req.headscale_url,
+            "headscale_authkey": req.headscale_authkey,
+            "exit_node": req.exit_node,
+        })
+        vpn_monitor.exit_node = req.exit_node
+    else:
+        save_config({
+            "username": req.username,
+            "password_hash": password_hash,
+            "password_salt": salt,
+            "use_vpn": False,
+            "headscale_url": "",
+            "headscale_authkey": "",
+            "exit_node": "",
+        })
+        vpn_monitor.exit_node = None
 
-    # Create auth token
     token = create_token()
     return {"token": token}
 
@@ -316,10 +334,12 @@ async def logout(request: Request):
 # =====================================================================
 
 @app.get("/api/formats", dependencies=[Depends(require_auth)])
-async def get_formats(url: str):
+async def get_formats(url: str, exit_node: str | None = None):
     try:
         loop = asyncio.get_running_loop()
-        info = await loop.run_in_executor(None, download_manager.fetch_formats, url)
+        info = await loop.run_in_executor(
+            None, partial(download_manager.fetch_formats, url, exit_node),
+        )
         return info.model_dump()
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -347,7 +367,9 @@ async def proxy_thumbnail(url: str):
 
 @app.post("/api/downloads", dependencies=[Depends(require_auth)])
 async def create_download(req: DownloadRequest):
-    download_id = await download_manager.start_download(req.url, req.format_id, req.category_id)
+    download_id = await download_manager.start_download(
+        req.url, req.format_id, req.category_id, req.exit_node,
+    )
     return {"id": download_id, "status": "queued"}
 
 
@@ -363,11 +385,25 @@ async def remove_download(download_id: str):
     if not row:
         raise HTTPException(status_code=404, detail="Download not found")
 
-    # Delete the video file
+    # Stop workers for anything that might still be running (not completed/failed)
+    status = row.get("status") or ""
+    if status not in ("completed", "failed"):
+        download_manager.cancel_download(download_id)
+
+    # Delete media files including partials (uuid.*)
+    for path in glob.glob(os.path.join(DOWNLOADS_DIR, download_id + "*")):
+        if os.path.isfile(path):
+            try:
+                os.remove(path)
+            except OSError:
+                pass
     if row.get("filename"):
         filepath = os.path.join(DOWNLOADS_DIR, row["filename"])
         if os.path.isfile(filepath):
-            os.remove(filepath)
+            try:
+                os.remove(filepath)
+            except OSError:
+                pass
 
     # Delete cached thumbnail (could be .jpg, .png, or .webp)
     for ext in [".jpg", ".png", ".webp"]:
@@ -391,7 +427,9 @@ async def retry_download(download_id: str):
 
     await delete_share_links_for_download(download_id)
     await delete_download(download_id)
-    new_id = await download_manager.start_download(row["url"], row.get("format_id"), row.get("category_id"))
+    new_id = await download_manager.start_download(
+        row["url"], row.get("format_id"), row.get("category_id"), row.get("exit_node"),
+    )
     return {"id": new_id, "status": "queued"}
 
 
@@ -519,10 +557,9 @@ async def patch_download(download_id: str, patch: DownloadPatch):
         raise HTTPException(status_code=404, detail="Download not found")
 
     fields = {"updated_at": datetime.now(timezone.utc).isoformat()}
-    if patch.category_id is not None:
-        fields["category_id"] = patch.category_id if patch.category_id != "" else None
-    else:
-        fields["category_id"] = None
+    updates = patch.model_dump(exclude_unset=True)
+    if "category_id" in updates:
+        fields["category_id"] = updates["category_id"] if updates["category_id"] != "" else None
 
     await update_download(download_id, fields)
     return {"ok": True}
@@ -609,14 +646,27 @@ async def create_category(req: CategoryCreate):
     if not name:
         raise HTTPException(status_code=400, detail="Name is required")
 
+    existing = await db_list_categories()
+    max_order = max((c.get("sort_order", 0) for c in existing), default=-1)
+
     cat_id = str(uuid.uuid4())
     now = datetime.now(timezone.utc).isoformat()
     try:
-        await db_insert_category({"id": cat_id, "name": name, "created_at": now})
+        await db_insert_category({"id": cat_id, "name": name, "sort_order": max_order + 1, "created_at": now})
     except Exception:
         raise HTTPException(status_code=409, detail="Category name already exists")
 
     return {"id": cat_id, "name": name, "created_at": now}
+
+
+class CategoryReorder(BaseModel):
+    order: list[str]
+
+
+@app.put("/api/categories/reorder", dependencies=[Depends(require_auth)])
+async def reorder_categories(req: CategoryReorder):
+    await db_reorder_categories(req.order)
+    return {"ok": True}
 
 
 @app.put("/api/categories/{category_id}", dependencies=[Depends(require_auth)])
@@ -1052,12 +1102,68 @@ async def share_thumbnail(token: str):
 @app.get("/api/settings", dependencies=[Depends(require_auth)])
 async def get_settings():
     config = load_config() or {}
-    return {"public_url": config.get("public_url", "")}
+    return {
+        "public_url": config.get("public_url", ""),
+        "use_vpn": config.get("use_vpn", True),
+        "default_category": config.get("default_category"),
+        "pin_hash": config.get("pin_hash"),
+        "chip_order": config.get("chip_order"),
+    }
 
 
 @app.put("/api/settings", dependencies=[Depends(require_auth)])
 async def update_settings(req: SettingsUpdate):
-    save_config({"public_url": req.public_url.strip().rstrip("/")})
+    patch = req.model_dump(exclude_unset=True)
+    updates = {}
+    if "public_url" in patch:
+        updates["public_url"] = (patch["public_url"] or "").strip().rstrip("/")
+    if "use_vpn" in patch:
+        updates["use_vpn"] = patch["use_vpn"]
+    if "default_category" in patch:
+        val = patch["default_category"]
+        updates["default_category"] = None if val == "__all__" else val
+    if "pin_hash" in patch:
+        updates["pin_hash"] = patch["pin_hash"] or None
+    if "chip_order" in patch:
+        updates["chip_order"] = patch["chip_order"]
+    if not updates:
+        raise HTTPException(status_code=400, detail="No changes specified")
+    save_config(updates)
+    return {"ok": True}
+
+
+@app.get("/api/settings/cookies", dependencies=[Depends(require_auth)])
+async def get_cookies_status():
+    present = os.path.isfile(COOKIES_FILE)
+    size = os.path.getsize(COOKIES_FILE) if present else 0
+    return {"present": present, "size": size}
+
+
+@app.post("/api/settings/cookies", dependencies=[Depends(require_auth)])
+async def upload_cookies(file: UploadFile = File(...)):
+    content = await file.read()
+    max_bytes = 8 * 1024 * 1024
+    if len(content) > max_bytes:
+        raise HTTPException(status_code=400, detail="File too large (max 8 MiB)")
+    if len(content) < 10:
+        raise HTTPException(status_code=400, detail="File too small")
+    head = content[:512].decode("utf-8", errors="replace")
+    if "\t" not in head and "#" not in head[:200]:
+        raise HTTPException(
+            status_code=400,
+            detail="File does not look like a Netscape cookies.txt export",
+        )
+    os.makedirs(os.path.dirname(COOKIES_FILE) or ".", exist_ok=True)
+    with open(COOKIES_FILE, "wb") as f:
+        f.write(content)
+    os.chmod(COOKIES_FILE, 0o600)
+    return {"ok": True, "size": len(content)}
+
+
+@app.delete("/api/settings/cookies", dependencies=[Depends(require_auth)])
+async def delete_cookies():
+    if os.path.isfile(COOKIES_FILE):
+        os.remove(COOKIES_FILE)
     return {"ok": True}
 
 
@@ -1120,6 +1226,7 @@ async def update_vpn_settings(req: VPNSettingsUpdate):
     if exit_node:
         updates["exit_node"] = exit_node
         vpn_monitor.exit_node = exit_node
+        vpn_monitor.exit_node_active = True
 
     save_config(updates)
     return {"ok": True}
@@ -1138,40 +1245,57 @@ async def update_exit_node(request: Request):
     if exit_node:
         save_config({"exit_node": exit_node})
         vpn_monitor.exit_node = exit_node
+        vpn_monitor.exit_node_active = True
     else:
         save_config({"exit_node": ""})
         vpn_monitor.exit_node = None
+        vpn_monitor.exit_node_active = False
 
     return {"ok": True}
 
 
 @app.post("/api/vpn/disconnect", dependencies=[Depends(require_auth)])
 async def disconnect_vpn():
-    """Disconnect from Tailscale."""
+    """Clear exit node so traffic goes direct. Tailscale stays connected to the mesh."""
     success = await disconnect()
     if not success:
-        raise HTTPException(status_code=502, detail="Failed to disconnect VPN")
-    vpn_monitor.connected = False
-    vpn_monitor.exit_node_online = False
+        raise HTTPException(status_code=502, detail="Failed to clear exit node")
+    vpn_monitor.exit_node_active = False
     return {"ok": True}
 
 
 @app.get("/api/vpn/ip", dependencies=[Depends(require_auth)])
 async def get_external_ip():
-    """Get external IP address via Tailscale SOCKS5 proxy."""
+    """Public egress IP: via SOCKS when VPN is on and an exit node is configured; else direct."""
     import subprocess
-    try:
-        # Use curl through Tailscale SOCKS5 proxy to get exit node's external IP
-        result = subprocess.run(
-            ["curl", "-s", "--max-time", "5", "--socks5", "localhost:1055", "https://api.ipify.org"],
-            capture_output=True, text=True, timeout=10
-        )
+
+    use_socks = vpn_monitor.exit_node_active
+    label_direct = "Direct connection"
+
+    def curl_ip(socks: bool) -> str | None:
+        cmd = ["curl", "-s", "--max-time", "5"]
+        if socks:
+            cmd.extend(["--socks5", "localhost:1055"])
+        cmd.append("https://api.ipify.org")
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+        except subprocess.TimeoutExpired:
+            return None
         if result.returncode == 0 and result.stdout.strip():
-            return {"ip": result.stdout.strip()}
+            return result.stdout.strip()
+        return None
+
+    try:
+        if not use_socks:
+            ip = curl_ip(False)
+            return {"ip": ip or label_direct}
+        ip = curl_ip(True)
+        if ip:
+            return {"ip": ip}
         return {"ip": "Unknown"}
     except Exception as e:
         logger.debug(f"Failed to get external IP: {e}")
-        return {"ip": "Unknown"}
+        return {"ip": label_direct if not use_socks else "Unknown"}
 
 
 # =====================================================================

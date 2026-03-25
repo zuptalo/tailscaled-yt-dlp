@@ -49,6 +49,8 @@ MIGRATIONS = [
     "ALTER TABLE downloads ADD COLUMN category_id TEXT",
     "ALTER TABLE downloads ADD COLUMN is_live INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE downloads ADD COLUMN duration REAL",
+    "ALTER TABLE downloads ADD COLUMN exit_node TEXT",
+    "ALTER TABLE categories ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0",
 ]
 
 
@@ -65,13 +67,28 @@ async def init_db():
         await db.execute(CREATE_TABLE)
         await db.execute(CREATE_CATEGORIES_TABLE)
         await db.execute(CREATE_SHARE_LINKS_TABLE)
-        # Run migrations for existing databases
         for sql in MIGRATIONS:
             try:
                 await db.execute(sql)
             except Exception:
-                pass  # Column already exists
+                pass
         await db.commit()
+
+        # Seed default categories on first run
+        cursor = await db.execute("SELECT COUNT(*) FROM categories")
+        (count,) = await cursor.fetchone()
+        if count == 0:
+            import uuid
+            from datetime import datetime, timezone
+
+            now = datetime.now(timezone.utc).isoformat()
+            seeds = ["YouTube", "Instagram", "X", "Facebook"]
+            for i, name in enumerate(seeds):
+                await db.execute(
+                    "INSERT INTO categories (id, name, sort_order, created_at) VALUES (?, ?, ?, ?)",
+                    [str(uuid.uuid4()), name, i, now],
+                )
+            await db.commit()
     finally:
         await db.close()
 
@@ -137,9 +154,21 @@ async def delete_download(download_id: str):
 async def list_categories() -> list[dict]:
     db = await get_db()
     try:
-        cursor = await db.execute("SELECT * FROM categories ORDER BY name")
+        cursor = await db.execute("SELECT * FROM categories ORDER BY sort_order, name")
         rows = await cursor.fetchall()
         return [dict(r) for r in rows]
+    finally:
+        await db.close()
+
+
+async def reorder_categories(ordered_ids: list[str]):
+    db = await get_db()
+    try:
+        for i, cat_id in enumerate(ordered_ids):
+            await db.execute(
+                "UPDATE categories SET sort_order = ? WHERE id = ?", [i, cat_id]
+            )
+        await db.commit()
     finally:
         await db.close()
 

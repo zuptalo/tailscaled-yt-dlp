@@ -115,6 +115,14 @@ def is_setup_complete() -> bool:
     return config is not None and "username" in config
 
 
+def config_use_vpn() -> bool:
+    """Whether downloads should use Tailscale SOCKS (default True for legacy configs)."""
+    config = load_config()
+    if not config:
+        return True
+    return config.get("use_vpn", True)
+
+
 # --- FastAPI auth dependency ---
 
 async def require_auth(request: Request, authorization: str | None = Header(None)):

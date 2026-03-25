@@ -6,12 +6,15 @@ import re
 import shutil
 import signal
 import subprocess
+import threading
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 
 import yt_dlp
+from yt_dlp.utils import DownloadError
 
+from app.auth import config_use_vpn, load_config
 from app.config import (
     COOKIES_FILE,
     DOWNLOADS_DIR,
@@ -21,6 +24,7 @@ from app.config import (
 )
 from app.database import get_download, insert_download, update_download
 from app.models import FormatInfo, VideoInfo
+from app.vpn import has_active_exit_node_sync, set_exit_node_sync
 
 logger = logging.getLogger(__name__)
 
@@ -103,6 +107,23 @@ def _next_vid_number() -> int:
     return max(nums, default=0) + 1
 
 
+def _vpn_proxy_url() -> str | None:
+    """SOCKS URL when VPN is enabled AND an exit node is actively set; otherwise direct."""
+    if not config_use_vpn():
+        return None
+    if not has_active_exit_node_sync():
+        return None
+    return "socks5://localhost:1055"
+
+
+def _merge_proxy(opts: dict) -> None:
+    proxy = _vpn_proxy_url()
+    if proxy:
+        opts["proxy"] = proxy
+    else:
+        opts.pop("proxy", None)
+
+
 def _base_yt_dlp_opts() -> dict:
     opts = {
         "user_agent": USER_AGENT,
@@ -125,9 +146,8 @@ def _base_yt_dlp_opts() -> dict:
                 "player_client": ["mweb", "tv"],
             }
         },
-        # Route traffic through Tailscale SOCKS5 proxy (for VPN exit node routing)
-        "proxy": "socks5://localhost:1055",
     }
+    _merge_proxy(opts)
     if _cookies_file_valid():
         opts["cookiefile"] = COOKIES_FILE
     # Use bundled ffmpeg if system ffmpeg not available (for local dev)
@@ -143,6 +163,40 @@ class DownloadManager:
         self._loop: asyncio.AbstractEventLoop | None = None
         self._broadcast = None  # set externally by main.py
         self._active_processes: dict[str, subprocess.Popen] = {}
+        self._lock = threading.Lock()
+        self._cancelled: set[str] = set()
+        self._active_ydl: dict[str, object] = {}
+        # Tailscale allows one exit at a time; serialize VPN download work
+        self._vpn_run_lock = threading.Lock()
+
+    def _is_cancelled(self, download_id: str) -> bool:
+        with self._lock:
+            return download_id in self._cancelled
+
+    def _register_ydl(self, download_id: str, ydl: "yt_dlp.YoutubeDL") -> None:
+        with self._lock:
+            self._active_ydl[download_id] = ydl
+
+    def _unregister_ydl(self, download_id: str) -> None:
+        with self._lock:
+            self._active_ydl.pop(download_id, None)
+
+    def cancel_download(self, download_id: str) -> None:
+        """Signal cancellation: cooperative yt-dlp interrupt, live subprocess SIGINT, or no-op if queued."""
+        with self._lock:
+            self._cancelled.add(download_id)
+            ydl = self._active_ydl.get(download_id)
+        if ydl:
+            try:
+                ydl.close()
+            except Exception:
+                logger.debug("ydl.close() during cancel", exc_info=True)
+        proc = self._active_processes.get(download_id)
+        if proc:
+            try:
+                proc.send_signal(signal.SIGINT)
+            except Exception:
+                logger.debug("SIGINT to live download during cancel", exc_info=True)
 
     def set_event_loop(self, loop: asyncio.AbstractEventLoop):
         self._loop = loop
@@ -154,14 +208,31 @@ class DownloadManager:
         if self._broadcast and self._loop:
             self._loop.call_soon_threadsafe(self._broadcast, event, data)
 
-    def fetch_formats(self, url: str) -> VideoInfo:
+    def _ensure_exit_for_request(self, exit_node_override: str | None) -> None:
+        """Switch Tailscale exit node only when a per-download override is specified.
+
+        Otherwise, respect the user's current routing choice (direct or exit node).
+        """
+        if not config_use_vpn():
+            return
+        if exit_node_override:
+            set_exit_node_sync(exit_node_override)
+
+    def fetch_formats(self, url: str, exit_node: str | None = None) -> VideoInfo:
+        if config_use_vpn():
+            with self._vpn_run_lock:
+                return self._fetch_formats_inner(url, exit_node)
+        return self._fetch_formats_inner(url, exit_node)
+
+    def _fetch_formats_inner(self, url: str, exit_node: str | None = None) -> VideoInfo:
+        self._ensure_exit_for_request(exit_node)
         opts = {
             "quiet": True,
             "no_warnings": True,
             "user_agent": USER_AGENT,
             "js_runtimes": {"node": {}},
-            "proxy": "socks5://localhost:1055",  # Route through Tailscale
         }
+        _merge_proxy(opts)
         if _cookies_file_valid():
             opts["cookiefile"] = COOKIES_FILE
 
@@ -194,7 +265,13 @@ class DownloadManager:
             formats=formats,
         )
 
-    async def start_download(self, url: str, format_id: str | None = None, category_id: str | None = None) -> str:
+    async def start_download(
+        self,
+        url: str,
+        format_id: str | None = None,
+        category_id: str | None = None,
+        exit_node: str | None = None,
+    ) -> str:
         download_id = str(uuid.uuid4())
         now = datetime.now(timezone.utc).isoformat()
 
@@ -218,6 +295,7 @@ class DownloadManager:
             "category_id": category_id,
             "is_live": 0,
             "duration": None,
+            "exit_node": exit_node,
         })
 
         self._emit("download_queued", {"id": download_id, "url": url, "status": "queued"})
@@ -225,9 +303,17 @@ class DownloadManager:
         return download_id
 
     def _run_download(self, download_id: str, url: str, format_id: str | None):
+        use_vpn = config_use_vpn()
+        if use_vpn:
+            self._vpn_run_lock.acquire()
         try:
+            if self._is_cancelled(download_id):
+                return
             self._do_download(download_id, url, format_id)
-        except Exception as e:
+        except DownloadError as e:
+            if self._is_cancelled(download_id) or str(e).strip() == "Cancelled":
+                logger.info("Download %s cancelled", download_id)
+                return
             logger.exception("Download %s failed", download_id)
             self._sync_update(download_id, {
                 "status": "failed",
@@ -239,9 +325,43 @@ class DownloadManager:
                 "error_message": str(e),
                 "status": "failed",
             })
+        except Exception as e:
+            if self._is_cancelled(download_id):
+                logger.info("Download %s cancelled", download_id)
+                return
+            logger.exception("Download %s failed", download_id)
+            self._sync_update(download_id, {
+                "status": "failed",
+                "error_message": str(e),
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            })
+            self._emit("download_failed", {
+                "id": download_id,
+                "error_message": str(e),
+                "status": "failed",
+            })
+        finally:
+            if use_vpn:
+                self._vpn_run_lock.release()
+            with self._lock:
+                self._cancelled.discard(download_id)
+            self._unregister_ydl(download_id)
+
+    def _ensure_exit_from_row(self, download_id: str) -> None:
+        row = self._sync_get(download_id)
+        override = (row or {}).get("exit_node")
+        self._ensure_exit_for_request(override if override else None)
 
     def _do_download(self, download_id: str, url: str, format_id: str | None):
         now_iso = lambda: datetime.now(timezone.utc).isoformat()
+
+        if self._is_cancelled(download_id):
+            return
+
+        self._ensure_exit_from_row(download_id)
+
+        if self._is_cancelled(download_id):
+            return
 
         # Fetch info first
         self._sync_update(download_id, {"status": "fetching_info", "updated_at": now_iso()})
@@ -251,13 +371,22 @@ class DownloadManager:
             "no_warnings": True,
             "user_agent": USER_AGENT,
             "js_runtimes": {"node": {}},
-            "proxy": "socks5://localhost:1055",  # Route through Tailscale
         }
+        _merge_proxy(extract_opts)
         if _cookies_file_valid():
             extract_opts["cookiefile"] = COOKIES_FILE
 
         with yt_dlp.YoutubeDL(extract_opts) as ydl:
-            info = ydl.extract_info(url, download=False)
+            self._register_ydl(download_id, ydl)
+            try:
+                if self._is_cancelled(download_id):
+                    return
+                info = ydl.extract_info(url, download=False)
+            finally:
+                self._unregister_ydl(download_id)
+
+        if self._is_cancelled(download_id):
+            return
 
         title = info.get("title") or f"vid{_next_vid_number()}"
         thumbnail_url = info.get("thumbnail")
@@ -321,6 +450,8 @@ class DownloadManager:
 
         # Progress hook
         def progress_hook(d):
+            if self._is_cancelled(download_id):
+                raise DownloadError("Cancelled")
             if d.get("status") == "downloading":
                 total = d.get("total_bytes") or d.get("total_bytes_estimate")
                 downloaded = d.get("downloaded_bytes", 0)
@@ -360,6 +491,8 @@ class DownloadManager:
 
         # Postprocessor hook
         def postprocessor_hook(d):
+            if self._is_cancelled(download_id):
+                raise DownloadError("Cancelled")
             if d.get("status") == "finished":
                 filepath = d.get("info_dict", {}).get("filepath")
                 if filepath:
@@ -380,7 +513,16 @@ class DownloadManager:
             dl_opts["format"] = "bestvideo+bestaudio/best"
 
         with yt_dlp.YoutubeDL(dl_opts) as ydl:
-            ydl.download([url])
+            self._register_ydl(download_id, ydl)
+            try:
+                if self._is_cancelled(download_id):
+                    return
+                ydl.download([url])
+            finally:
+                self._unregister_ydl(download_id)
+
+        if self._is_cancelled(download_id):
+            return
 
         # Final — get the actual filename (should be UUID.ext)
         row = self._sync_get(download_id)
@@ -390,9 +532,15 @@ class DownloadManager:
 
         filepath = os.path.join(DOWNLOADS_DIR, filename)
 
+        if self._is_cancelled(download_id):
+            return
+
         # Re-encode to H.264/AAC for iOS compatibility if needed
         if os.path.isfile(filepath) and filepath.endswith(".mp4"):
             self._ensure_ios_compatible(download_id, filepath)
+
+        if self._is_cancelled(download_id):
+            return
 
         # Cache thumbnail to thumbnails folder
         if thumbnail_url:
@@ -424,16 +572,24 @@ class DownloadManager:
     def _do_live_download(self, download_id: str, url: str, title: str, format_str: str | None, thumbnail_url: str | None):
         now_iso = lambda: datetime.now(timezone.utc).isoformat()
 
+        if self._is_cancelled(download_id):
+            return
+
         # Pre-cache thumbnail if available
         if thumbnail_url:
             self._cache_thumbnail(download_id, thumbnail_url)
+
+        if self._is_cancelled(download_id):
+            return
 
         # Use download_id (UUID) as filename
         output_path = os.path.join(DOWNLOADS_DIR, f"{download_id}.%(ext)s")
         cmd = ["yt-dlp", "--newline", "--no-colors", "-o", output_path]
         cmd.extend(["--user-agent", USER_AGENT])
         cmd.extend(["--merge-output-format", "mp4"])
-        cmd.extend(["--proxy", "socks5://localhost:1055"])  # Route through Tailscale
+        proxy = _vpn_proxy_url()
+        if proxy:
+            cmd.extend(["--proxy", proxy])
 
         # Use bundled ffmpeg if needed
         ffmpeg_path = _get_ffmpeg_path()
@@ -457,6 +613,12 @@ class DownloadManager:
 
         try:
             for line in proc.stdout:
+                if self._is_cancelled(download_id):
+                    try:
+                        proc.send_signal(signal.SIGINT)
+                    except Exception:
+                        pass
+                    break
                 line = line.strip()
                 if not line:
                     continue
@@ -516,6 +678,9 @@ class DownloadManager:
         finally:
             self._active_processes.pop(download_id, None)
 
+        if self._is_cancelled(download_id):
+            return
+
         # Get final filename (should be UUID.ext)
         row = self._sync_get(download_id)
         filename = row.get("filename") if row else None
@@ -532,6 +697,9 @@ class DownloadManager:
             thumb_path = os.path.join(THUMBNAILS_DIR, f"{download_id}.jpg")
             if not os.path.isfile(thumb_path):
                 self._extract_thumbnail_from_video(download_id, filepath)
+
+        if self._is_cancelled(download_id):
+            return
 
         self._sync_update(download_id, {
             "status": "completed",
@@ -578,6 +746,8 @@ class DownloadManager:
     def _ensure_ios_compatible(self, download_id: str, filepath: str):
         """Re-encode video to H.264/AAC if not iOS compatible (VP9, AV1, etc.)."""
         try:
+            if self._is_cancelled(download_id):
+                return
             # Check current video codec
             result = subprocess.run(
                 ["ffprobe", "-v", "error", "-select_streams", "v:0",

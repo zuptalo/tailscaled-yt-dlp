@@ -27,6 +27,7 @@ class DownloadRequest(BaseModel):
     url: str
     format_id: str | None = None
     category_id: str | None = None
+    exit_node: str | None = None
 
 
 class DownloadStatus(BaseModel):
@@ -91,7 +92,11 @@ class DownloadPatch(BaseModel):
 
 
 class SettingsUpdate(BaseModel):
-    public_url: str
+    public_url: str | None = None
+    use_vpn: bool | None = None
+    default_category: str | None = None
+    pin_hash: str | None = None
+    chip_order: list[str] | None = None
 
 
 class CredentialsUpdate(BaseModel):
