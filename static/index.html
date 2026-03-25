@@ -859,7 +859,7 @@ body.action-sheet-open {
   <div>
     <div class="action-sheet">
       <div class="action-sheet-title" id="saveActionTitle">Save Video</div>
-      <button class="action-sheet-btn primary" id="saveToFilesBtn">Save to Files</button>
+      <button class="action-sheet-btn primary" id="saveToFilesBtn">Save</button>
       <button class="action-sheet-btn" id="shareFileBtn">Share</button>
     </div>
     <div class="action-sheet action-sheet-cancel">
@@ -1318,8 +1318,8 @@ async function enterMainApp() {
   await loadAppSettings();
   renderVPN();
   loadVPN();
+  await loadCategories();
   loadDownloads();
-  loadCategories();
   connectSSE();
   startLiveTimer();
   startIpRefresh();
@@ -2002,10 +2002,9 @@ async function retryDownload(id) {
 
 function downloadFile(id) {
   const d = state.downloads.get(id);
-  const filename = d ? d.filename : 'download';
+  const filename = d ? _safeFilename(d.title, d.filename) : 'download';
   const url = '/api/downloads/' + id + '/file?token=' + encodeURIComponent(authToken);
 
-  // Use anchor with download attribute for proper file download
   const a = document.createElement('a');
   a.href = url;
   a.download = filename;
@@ -2048,10 +2047,46 @@ function closeSaveSheet() {
   window.scrollTo(0, actionSheetScrollY);
 }
 
-document.getElementById('saveToFilesBtn').onclick = () => {
+function _safeFilename(title, fallback) {
+  if (!title) return fallback || 'video.mp4';
+  const name = title.replace(/[\/\\:*?"<>|]/g, '_').substring(0, 200);
+  const ext = (fallback || '').split('.').pop() || 'mp4';
+  return name.endsWith('.' + ext) ? name : name + '.' + ext;
+}
+
+async function _fetchAndShare(id, d) {
+  const resp = await apiFetch('/api/downloads/' + id + '/file');
+  if (!resp.ok) throw new Error('Download failed');
+  const blob = await resp.blob();
+  const filename = _safeFilename(d.title, d.filename);
+  const file = new File([blob], filename, { type: blob.type });
+  if (navigator.canShare && navigator.canShare({ files: [file] })) {
+    await navigator.share({ files: [file] });
+    return true;
+  }
+  return false;
+}
+
+document.getElementById('saveToFilesBtn').onclick = async () => {
   const id = pendingSaveId;
   closeSaveSheet();
-  if (id) downloadFile(id);
+  if (!id) return;
+
+  const d = state.downloads.get(id);
+  if (!d) return;
+
+  if ('ontouchstart' in window && navigator.share) {
+    try {
+      if (await _fetchAndShare(id, d)) return;
+    } catch (e) {
+      if (e.name !== 'AbortError') {
+        alert('Could not save. Try again.');
+      }
+      return;
+    }
+  }
+
+  downloadFile(id);
 };
 
 document.getElementById('shareFileBtn').onclick = async () => {
@@ -2062,25 +2097,14 @@ document.getElementById('shareFileBtn').onclick = async () => {
   const d = state.downloads.get(id);
   if (!d || !d.filename) return;
 
-  // Try Web Share API with file
-  if (navigator.share && navigator.canShare) {
-    const filesize = d.filesize || 0;
-    if (filesize > 0 && filesize < 100 * 1024 * 1024) {
-      try {
-        const resp = await apiFetch('/api/downloads/' + id + '/file');
-        if (resp.ok) {
-          const blob = await resp.blob();
-          const file = new File([blob], d.filename, { type: blob.type });
-          if (navigator.canShare({ files: [file] })) {
-            await navigator.share({ files: [file], title: d.title || d.filename });
-            return;
-          }
-        }
-      } catch (e) {
+  if (navigator.share) {
+    try {
+      if (await _fetchAndShare(id, d)) return;
+      alert('Sharing not supported for this file.');
+    } catch (e) {
+      if (e.name !== 'AbortError') {
         alert('Could not share file. Try saving instead.');
       }
-    } else {
-      alert('File too large to share directly. Use "Save to Files" instead.');
     }
   }
 };
@@ -2350,7 +2374,7 @@ function renderDownloads() {
     }
 
     let actions = '';
-    if (isCompleted) {
+    if (isCompleted && !('ontouchstart' in window)) {
       actions += '<button class="btn btn-ghost btn-sm" onclick="saveDownload(\'' + d.id + '\')">Save</button>';
       actions += '<button class="btn btn-ghost btn-sm" onclick="toggleSharePanel(\'' + d.id + '\')">Share Link</button>';
       actions += '<button class="btn btn-danger btn-sm" onclick="deleteDownload(\'' + d.id + '\')">Delete</button>';
