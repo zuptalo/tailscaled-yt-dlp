@@ -884,6 +884,26 @@ body.action-sheet-open {
   </div>
 </div>
 
+<div class="action-sheet-overlay" id="shareReadySheet">
+  <div>
+    <div class="action-sheet">
+      <div class="action-sheet-title" id="shareReadyTitle">Ready to save</div>
+      <button class="action-sheet-btn primary" id="shareReadyBtn">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:middle;margin-right:6px;"><path d="M4 12v7a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-7"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>
+        Save
+      </button>
+    </div>
+    <div class="action-sheet action-sheet-cancel">
+      <button class="action-sheet-btn" id="shareReadyCancelBtn">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<div id="shareLoadingOverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:10001;flex-direction:column;align-items:center;justify-content:center;">
+  <div class="spinner" style="width:36px;height:36px;border:3px solid #333;border-top-color:#3b82f6;border-radius:50%;animation:spin 0.8s linear infinite;"></div>
+  <div style="color:#a3a3a3;margin-top:12px;font-size:14px;" id="shareLoadingText">Preparing file...</div>
+</div>
+
 <div class="container">
 
   <!-- ============================================================= -->
@@ -2002,7 +2022,7 @@ function downloadFile(id) {
   document.body.removeChild(a);
 }
 
-// Save action sheet
+// Save / Share
 function _safeFilename(title, fallback) {
   if (!title) return fallback || 'video.mp4';
   const name = title.replace(/[\/\\:*?"<>|]/g, '_').substring(0, 200);
@@ -2010,27 +2030,83 @@ function _safeFilename(title, fallback) {
   return name.endsWith('.' + ext) ? name : name + '.' + ext;
 }
 
+let _pendingShareFile = null;
+
+function _showShareLoading() {
+  const el = document.getElementById('shareLoadingOverlay');
+  el.style.display = 'flex';
+}
+
+function _hideShareLoading() {
+  document.getElementById('shareLoadingOverlay').style.display = 'none';
+}
+
+function _showShareReady(title) {
+  document.getElementById('shareReadyTitle').textContent =
+    (title || 'Video').substring(0, 40) + ((title || '').length > 40 ? '...' : '');
+  actionSheetScrollY = window.scrollY;
+  document.body.classList.add('action-sheet-open');
+  document.body.style.top = `-${actionSheetScrollY}px`;
+  document.getElementById('shareReadySheet').classList.add('visible');
+}
+
+function _closeShareReady() {
+  _pendingShareFile = null;
+  document.getElementById('shareReadySheet').classList.remove('visible');
+  document.body.classList.remove('action-sheet-open');
+  document.body.style.top = '';
+  window.scrollTo(0, actionSheetScrollY);
+}
+
+document.getElementById('shareReadyBtn').onclick = async () => {
+  const file = _pendingShareFile;
+  _closeShareReady();
+  if (!file) return;
+  try {
+    await navigator.share({ files: [file] });
+  } catch (e) {
+    if (e.name !== 'AbortError') {
+      alert('Could not share. Try again.');
+    }
+  }
+};
+
+document.getElementById('shareReadyCancelBtn').onclick = () => { _closeShareReady(); };
+document.getElementById('shareReadySheet').onclick = e => {
+  if (e.target === document.getElementById('shareReadySheet')) _closeShareReady();
+};
+
 async function saveDownload(id) {
   const d = state.downloads.get(id);
   if (!d) return;
 
-  if (navigator.share) {
-    try {
-      const resp = await apiFetch('/api/downloads/' + id + '/file');
-      if (!resp.ok) throw new Error('Download failed');
-      const blob = await resp.blob();
-      const filename = _safeFilename(d.title, d.filename);
-      const file = new File([blob], filename, { type: blob.type });
-      if (navigator.canShare && navigator.canShare({ files: [file] })) {
-        await navigator.share({ files: [file] });
-        return;
-      }
-    } catch (e) {
-      if (e.name === 'AbortError') return;
-    }
+  if (!navigator.share || !navigator.canShare) {
+    downloadFile(id);
+    return;
   }
 
-  downloadFile(id);
+  _showShareLoading();
+  try {
+    const resp = await apiFetch('/api/downloads/' + id + '/file');
+    if (!resp.ok) throw new Error('Download failed');
+    const blob = await resp.blob();
+    const filename = _safeFilename(d.title, d.filename);
+    const file = new File([blob], filename, { type: blob.type });
+    _hideShareLoading();
+
+    if (!navigator.canShare({ files: [file] })) {
+      downloadFile(id);
+      return;
+    }
+
+    _pendingShareFile = file;
+    _showShareReady(d.title || d.filename);
+  } catch (e) {
+    _hideShareLoading();
+    if (e.name !== 'AbortError') {
+      downloadFile(id);
+    }
+  }
 }
 
 document.getElementById('catRenameSheet').onclick = e => {
