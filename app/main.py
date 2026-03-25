@@ -433,6 +433,12 @@ async def retry_download(download_id: str):
     return {"id": new_id, "status": "queued"}
 
 
+def _human_filename(row: dict) -> str:
+    ext = os.path.splitext(row.get("filename", ""))[1] or ".mp4"
+    title = row.get("title") or row.get("filename") or "video"
+    safe = "".join(c if c not in r'\/:*?"<>|' else "_" for c in title)[:200]
+    return safe if safe.endswith(ext) else safe + ext
+
 # --- File Download ---
 
 @app.get("/api/downloads/{download_id}/file")
@@ -457,7 +463,7 @@ async def download_file(download_id: str, request: Request):
     if not os.path.isfile(filepath):
         raise HTTPException(status_code=404, detail="File not found on disk")
 
-    return FileResponse(filepath, filename=row["filename"], media_type="application/octet-stream")
+    return FileResponse(filepath, filename=_human_filename(row), media_type="application/octet-stream")
 
 
 # --- Video streaming ---
@@ -1007,7 +1013,7 @@ async def share_download(token: str, request: Request):
     if not os.path.isfile(filepath):
         raise HTTPException(status_code=404, detail="File not found on disk")
 
-    return FileResponse(filepath, filename=row["filename"], media_type="application/octet-stream")
+    return FileResponse(filepath, filename=_human_filename(row), media_type="application/octet-stream")
 
 
 @app.get("/s/{token}/stream")
