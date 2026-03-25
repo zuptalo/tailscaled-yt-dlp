@@ -855,18 +855,6 @@ body.action-sheet-open {
   </div>
 </div>
 
-<div class="action-sheet-overlay" id="saveActionSheet">
-  <div>
-    <div class="action-sheet">
-      <div class="action-sheet-title" id="saveActionTitle">Save Video</div>
-      <button class="action-sheet-btn primary" id="saveToFilesBtn">Save</button>
-      <button class="action-sheet-btn" id="shareFileBtn">Share</button>
-    </div>
-    <div class="action-sheet action-sheet-cancel">
-      <button class="action-sheet-btn" onclick="closeSaveSheet()">Cancel</button>
-    </div>
-  </div>
-</div>
 
 <div class="action-sheet-overlay" id="catRenameSheet">
   <div>
@@ -2015,38 +2003,6 @@ function downloadFile(id) {
 }
 
 // Save action sheet
-let pendingSaveId = null;
-
-function saveDownload(id) {
-  showSaveSheet(id);
-}
-
-function showSaveSheet(id) {
-  const d = state.downloads.get(id);
-  if (!d) return;
-  const title = d.title || d.filename || 'Video';
-  document.getElementById('saveActionTitle').textContent = title.substring(0, 40) + (title.length > 40 ? '...' : '');
-  pendingSaveId = id;
-
-  // Show/hide share button based on capability
-  const shareBtn = document.getElementById('shareFileBtn');
-  shareBtn.style.display = (navigator.share && navigator.canShare) ? '' : 'none';
-
-  actionSheetScrollY = window.scrollY;
-  document.body.classList.add('action-sheet-open');
-  document.body.style.top = `-${actionSheetScrollY}px`;
-
-  document.getElementById('saveActionSheet').classList.add('visible');
-}
-
-function closeSaveSheet() {
-  pendingSaveId = null;
-  document.getElementById('saveActionSheet').classList.remove('visible');
-  document.body.classList.remove('action-sheet-open');
-  document.body.style.top = '';
-  window.scrollTo(0, actionSheetScrollY);
-}
-
 function _safeFilename(title, fallback) {
   if (!title) return fallback || 'video.mp4';
   const name = title.replace(/[\/\\:*?"<>|]/g, '_').substring(0, 200);
@@ -2054,64 +2010,28 @@ function _safeFilename(title, fallback) {
   return name.endsWith('.' + ext) ? name : name + '.' + ext;
 }
 
-async function _fetchAndShare(id, d) {
-  const resp = await apiFetch('/api/downloads/' + id + '/file');
-  if (!resp.ok) throw new Error('Download failed');
-  const blob = await resp.blob();
-  const filename = _safeFilename(d.title, d.filename);
-  const file = new File([blob], filename, { type: blob.type });
-  if (navigator.canShare && navigator.canShare({ files: [file] })) {
-    await navigator.share({ files: [file] });
-    return true;
-  }
-  return false;
-}
-
-document.getElementById('saveToFilesBtn').onclick = async () => {
-  const id = pendingSaveId;
-  closeSaveSheet();
-  if (!id) return;
-
+async function saveDownload(id) {
   const d = state.downloads.get(id);
   if (!d) return;
 
-  if ('ontouchstart' in window && navigator.share) {
+  if (navigator.share) {
     try {
-      if (await _fetchAndShare(id, d)) return;
-    } catch (e) {
-      if (e.name !== 'AbortError') {
-        alert('Could not save. Try again.');
+      const resp = await apiFetch('/api/downloads/' + id + '/file');
+      if (!resp.ok) throw new Error('Download failed');
+      const blob = await resp.blob();
+      const filename = _safeFilename(d.title, d.filename);
+      const file = new File([blob], filename, { type: blob.type });
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        await navigator.share({ files: [file] });
+        return;
       }
-      return;
+    } catch (e) {
+      if (e.name === 'AbortError') return;
     }
   }
 
   downloadFile(id);
-};
-
-document.getElementById('shareFileBtn').onclick = async () => {
-  const id = pendingSaveId;
-  closeSaveSheet();
-  if (!id) return;
-
-  const d = state.downloads.get(id);
-  if (!d || !d.filename) return;
-
-  if (navigator.share) {
-    try {
-      if (await _fetchAndShare(id, d)) return;
-      alert('Sharing not supported for this file.');
-    } catch (e) {
-      if (e.name !== 'AbortError') {
-        alert('Could not share file. Try saving instead.');
-      }
-    }
-  }
-};
-
-document.getElementById('saveActionSheet').onclick = e => {
-  if (e.target === document.getElementById('saveActionSheet')) closeSaveSheet();
-};
+}
 
 document.getElementById('catRenameSheet').onclick = e => {
   if (e.target === document.getElementById('catRenameSheet')) closeCatRenameSheet();
@@ -2124,8 +2044,7 @@ document.getElementById('catRenameInput').addEventListener('keydown', e => {
 });
 
 async function shareOrDownload(id) {
-  // Show action sheet for save/share options
-  showSaveSheet(id);
+  saveDownload(id);
 }
 
 function showSwipeActions(id) {
