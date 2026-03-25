@@ -332,6 +332,23 @@ body {
   font-size: 10px; padding: 2px 8px; border-radius: 10px;
   background: #1e293b; color: #94a3b8;
 }
+.category-badge.clickable {
+  cursor: pointer; position: relative;
+}
+.category-badge.clickable:active { opacity: 0.7; }
+.cat-dropdown {
+  display: none; position: absolute; top: 100%; left: 0; z-index: 100;
+  margin-top: 4px; background: #1a1a1a; border: 1px solid #2a2a2a;
+  border-radius: 8px; min-width: 160px; padding: 4px 0;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+}
+.cat-dropdown.open { display: block; }
+.cat-dropdown-item {
+  padding: 8px 12px; font-size: 13px; color: #e5e5e5;
+  cursor: pointer; white-space: nowrap;
+}
+.cat-dropdown-item:active, .cat-dropdown-item:hover { background: #2a2a2a; }
+.cat-dropdown-item.selected { color: #3b82f6; font-weight: 600; }
 
 /* Swipe container */
 .swipe-container {
@@ -393,13 +410,6 @@ body {
 }
 .delete-link-btn:hover { color: #ef4444; }
 
-/* Category row on cards */
-.dl-category-row { display: flex; align-items: center; gap: 6px; margin-top: 8px; }
-.dl-category-row select {
-  padding: 4px 8px; border-radius: 6px;
-  border: 1px solid #2a2a2a; background: #0f0f0f; color: #e5e5e5;
-  font-size: 11px; outline: none; min-height: 32px;
-}
 
 /* Settings modal — tabbed */
 .modal-overlay {
@@ -1041,7 +1051,7 @@ body.action-sheet-open {
       <div class="format-list" id="formatList"></div>
       <div class="format-category" id="formatCategory">
         <label>Category:</label>
-        <select id="formatCategorySelect"><option value="">None</option></select>
+        <select id="formatCategorySelect"><option value="">Uncategorized</option></select>
       </div>
       <div class="format-actions">
         <button class="btn btn-primary" id="downloadBtn" onclick="startDownload()">Download</button>
@@ -1868,7 +1878,7 @@ function renderFormats() {
 
 function updateFormatCategorySelect() {
   const sel = document.getElementById('formatCategorySelect');
-  sel.innerHTML = '<option value="">None</option>' +
+  sel.innerHTML = '<option value="">Uncategorized</option>' +
     state.categories.map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join('');
 }
 
@@ -2162,6 +2172,22 @@ async function loadDownloads() {
   }
 }
 
+function toggleCatDropdown(badge) {
+  const dropdown = badge.querySelector('.cat-dropdown');
+  const wasOpen = dropdown.classList.contains('open');
+  document.querySelectorAll('.cat-dropdown.open').forEach(d => d.classList.remove('open'));
+  if (!wasOpen) dropdown.classList.add('open');
+}
+
+function selectCardCategory(downloadId, categoryId) {
+  document.querySelectorAll('.cat-dropdown.open').forEach(d => d.classList.remove('open'));
+  updateDownloadCategory(downloadId, categoryId);
+}
+
+document.addEventListener('click', () => {
+  document.querySelectorAll('.cat-dropdown.open').forEach(d => d.classList.remove('open'));
+});
+
 async function updateDownloadCategory(downloadId, categoryId) {
   try {
     await apiFetch('/api/downloads/' + downloadId, {
@@ -2335,7 +2361,14 @@ function renderDownloads() {
     if (isLive) {
       badges += '<span class="live-badge"><span class="live-dot"></span>LIVE</span>';
     }
-    if (d.category_id && catMap[d.category_id]) {
+    if (isCompleted) {
+      const catLabel = (d.category_id && catMap[d.category_id]) ? escapeHtml(catMap[d.category_id]) : 'Uncategorized';
+      let catDropdownItems = '<div class="cat-dropdown-item' + (!d.category_id ? ' selected' : '') + '" onclick="event.stopPropagation();selectCardCategory(\'' + d.id + '\', \'\')">' + escapeHtml('Uncategorized') + '</div>';
+      state.categories.forEach(c => {
+        catDropdownItems += '<div class="cat-dropdown-item' + (d.category_id === c.id ? ' selected' : '') + '" onclick="event.stopPropagation();selectCardCategory(\'' + d.id + '\', \'' + c.id + '\')">' + escapeHtml(c.name) + '</div>';
+      });
+      badges += '<span class="category-badge clickable" onclick="event.stopPropagation();toggleCatDropdown(this)">' + catLabel + '<div class="cat-dropdown">' + catDropdownItems + '</div></span>';
+    } else if (d.category_id && catMap[d.category_id]) {
       badges += '<span class="category-badge">' + escapeHtml(catMap[d.category_id]) + '</span>';
     }
     if (d.exit_node) {
@@ -2384,16 +2417,6 @@ function renderDownloads() {
       actions += '<button class="btn btn-ghost btn-sm" onclick="deleteDownload(\'' + d.id + '\')">Cancel</button>';
     }
 
-    // Category selector for completed
-    let catRow = '';
-    if (isCompleted) {
-      catRow = '<div class="dl-category-row"><select onchange="updateDownloadCategory(\'' + d.id + '\', this.value)">' +
-        '<option value="">No category</option>' +
-        state.categories.map(c =>
-          '<option value="' + c.id + '"' + (d.category_id === c.id ? ' selected' : '') + '>' + escapeHtml(c.name) + '</option>'
-        ).join('') +
-        '</select></div>';
-    }
 
     // Share panel
     let sharePanel = '';
@@ -2450,7 +2473,6 @@ function renderDownloads() {
       liveSection +
       (isFailed && d.error_message ? '<div class="dl-error">' + escapeHtml(d.error_message) + '</div>' : '') +
       (actions ? '<div class="dl-actions">' + actions + '</div>' : '') +
-      catRow +
       sharePanel +
     '</div>';
 
