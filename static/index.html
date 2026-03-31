@@ -293,6 +293,34 @@ body {
   font-size: 12px; color: #737373; margin-bottom: 2px;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
+/* ETA (left, stable width) | MiB/s (right) — % sits next to the progress bar */
+.dl-meta-line.dl-meta-active-row {
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+}
+.dl-meta-active-stats {
+  display: grid;
+  grid-template-columns: 11ch minmax(0, 1fr);
+  gap: 4px 10px;
+  align-items: center;
+  max-width: 100%;
+  font-variant-numeric: tabular-nums;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+.dl-meta-eta {
+  text-align: left;
+  min-height: 1.25em;
+  white-space: nowrap;
+}
+.dl-meta-spd {
+  text-align: right;
+  min-width: 0;
+  min-height: 1.25em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .dl-badges { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-top: 2px; }
 .dl-status {
   font-size: 11px; padding: 2px 8px; border-radius: 10px; flex-shrink: 0;
@@ -306,19 +334,43 @@ body {
 
 /* Progress section for active cards */
 .dl-progress-section { margin-top: 10px; }
+.dl-progress-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
 .dl-progress-bar {
-  width: 100%; height: 4px; background: #2a2a2a; border-radius: 2px;
+  flex: 1;
+  min-width: 0;
+  height: 4px;
+  background: #2a2a2a;
+  border-radius: 2px;
   overflow: hidden;
+}
+.dl-progress-pct-nearbar {
+  flex: 0 0 3.25rem;
+  text-align: right;
+  font-size: 11px;
+  font-weight: 500;
+  color: #a3a3a3;
+  font-variant-numeric: tabular-nums;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 .dl-progress-fill {
   height: 100%; background: #3b82f6; border-radius: 2px;
-  transition: width 0.3s ease;
+  transition: width 0.12s ease-out;
 }
-.dl-progress-info {
-  display: flex; justify-content: space-between;
-  font-size: 11px; color: #737373; margin-top: 6px;
+.dl-progress-bytes {
+  font-size: 10px;
+  color: #5c5c5c;
+  margin-top: 5px;
+  margin-bottom: 1px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  min-height: 1.25em;
+  letter-spacing: -0.02em;
 }
-
 /* Live recording */
 .live-badge {
   display: inline-flex; align-items: center; gap: 4px;
@@ -334,7 +386,40 @@ body {
   50% { opacity: 0.3; }
 }
 .dl-live-info {
-  display: flex; gap: 12px; font-size: 12px; color: #a3a3a3; margin-top: 8px;
+  display: grid;
+  grid-template-columns: 12ch 14ch 11ch;
+  gap: 6px 8px;
+  align-items: center;
+  justify-items: stretch;
+  font-size: 12px;
+  color: #a3a3a3;
+  margin-top: 8px;
+  font-variant-numeric: tabular-nums;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+.dl-live-speed {
+  min-width: 0;
+  width: 100%;
+  text-align: right;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-height: 1.25em;
+}
+.dl-live-bytes {
+  min-width: 0;
+  width: 100%;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-height: 1.25em;
+}
+.dl-live-elapsed {
+  min-width: 0;
+  width: 100%;
+  text-align: right;
+  min-height: 1.25em;
 }
 
 .dl-error {
@@ -1763,6 +1848,10 @@ function connectSSE() {
     renderVPN();
   });
   evtSource.addEventListener('ping', () => {});
+  evtSource.onopen = () => {
+    /* After server restart, DB may mark stale jobs failed — resync list for Retry UI */
+    loadDownloads();
+  };
   evtSource.onerror = () => {
     evtSource.close();
     setTimeout(connectSSE, 3000);
@@ -1771,8 +1860,11 @@ function connectSSE() {
 
 function updateDownload(id, patch) {
   const existing = state.downloads.get(id) || {};
-  state.downloads.set(id, { ...existing, ...patch, id });
-  renderDownloads();
+  const merged = { ...existing, ...patch, id };
+  state.downloads.set(id, merged);
+  if (!tryPatchDownloadCardDom(id, merged, existing, patch)) {
+    renderDownloads();
+  }
 }
 
 // ===================================================================
@@ -1886,22 +1978,31 @@ function renderFormats() {
       return hb - ha;
     });
 
+  /* Dedupe true duplicates only. Same empty/missing format_id must not collapse the whole list to one row. */
   const seen = new Set();
   const unique = [];
-  for (const f of videoFormats) {
-    const key = f.quality_label || f.format_id;
-    if (!seen.has(key)) { seen.add(key); unique.push(f); }
+  for (let i = 0; i < videoFormats.length; i++) {
+    const f = videoFormats[i];
+    const raw = f.format_id;
+    const hasRealId = raw != null && String(raw).trim() !== '';
+    const key = hasRealId
+      ? ('id:' + String(raw))
+      : ('row:' + i + ':' + [f.resolution || '', f.vcodec || '', f.acodec || '', f.ext || '', f.estimated_total_bytes || f.filesize_approx || f.filesize || ''].join('|'));
+    if (seen.has(key)) continue;
+    seen.add(key);
+    unique.push(f);
   }
 
   const list = document.getElementById('formatList');
   list.innerHTML = unique.map(f => {
-    const size = f.filesize || f.filesize_approx;
+    const size = f.estimated_total_bytes != null ? f.estimated_total_bytes : (f.filesize || f.filesize_approx);
     const sizeStr = size ? formatBytes(size) : '';
     const codecStr = [f.vcodec, f.acodec].filter(c => c && c !== 'none').map(c => c.split('.')[0]).join('+');
     const audioTag = f.has_audio ? '' : ' (video only)';
+    const fid = escapeAttr(String(f.format_id ?? ''));
     return `
-      <label class="format-option" data-fid="${f.format_id}">
-        <input type="radio" name="format" value="${f.format_id}">
+      <label class="format-option" data-fid="${fid}">
+        <input type="radio" name="format" value="${fid}">
         <span class="format-label">${f.quality_label || f.format_id}${audioTag}</span>
         <span class="format-meta">${codecStr}</span>
         <span class="format-meta">${sizeStr}</span>
@@ -1969,7 +2070,14 @@ async function startDownload() {
   const categoryId = document.getElementById('formatCategorySelect').value || null;
 
   try {
-    const body = { url: state.fetchedUrl, format_id: state.selectedFormat, category_id: categoryId };
+    const formats = (state.formats && state.formats.formats) || [];
+    const selFmt = formats.find(f => String(f.format_id) === String(state.selectedFormat));
+    const body = {
+      url: state.fetchedUrl,
+      format_id: state.selectedFormat || null,
+      quality_label: selFmt ? (selFmt.quality_label || String(selFmt.format_id)) : null,
+      category_id: categoryId,
+    };
     const ex = document.getElementById('formatExitSelect');
     if (ex && ex.value) body.exit_node = ex.value;
     const resp = await apiFetch('/api/downloads', {
@@ -2310,6 +2418,111 @@ function formatDuration(secs) {
 }
 
 // ===================================================================
+// Incremental card updates (avoid full list redraw on every SSE tick)
+// ===================================================================
+function tryPatchDownloadCardDom(id, merged, existing, patch) {
+  const prevS = existing.status;
+  const nextS = merged.status;
+  const terminal = new Set(['completed', 'failed']);
+  if (terminal.has(nextS) || terminal.has(prevS)) return false;
+
+  const active = ['queued', 'fetching_info', 'downloading', 'post_processing'];
+  if (!active.includes(nextS)) return false;
+  if (prevS !== undefined && prevS !== null && !active.includes(prevS)) return false;
+
+  const prevLive = !!existing.is_live && prevS === 'downloading';
+  const nextLive = !!merged.is_live && nextS === 'downloading';
+  if (prevLive !== nextLive) return false;
+
+  if ((state.sortBy === 'size_desc' || state.sortBy === 'size_asc') && patch.filesize !== undefined) {
+    return false;
+  }
+  if ((state.sortBy === 'name_az' || state.sortBy === 'name_za') && patch.title !== undefined) {
+    return false;
+  }
+
+  const card = document.querySelector('.download-card[data-id="' + id + '"]');
+  if (!card) return false;
+
+  if (patch.thumbnail_url && !card.querySelector('img.dl-thumb')) {
+    return false;
+  }
+
+  if (nextLive) {
+    return patchLiveDownloadCard(card, merged);
+  }
+  return patchActiveDownloadCard(card, merged);
+}
+
+function patchActiveDownloadCard(card, d) {
+  const fill = card.querySelector('.dl-progress-fill');
+  const metaEta = card.querySelector('.dl-meta-eta');
+  const metaSpd = card.querySelector('.dl-meta-spd');
+  const pctNear = card.querySelector('.dl-progress-pct-nearbar');
+  if (!fill || !metaEta || !metaSpd || !pctNear) return false;
+
+  let bytesEl = card.querySelector('.dl-progress-bytes');
+  if (!bytesEl) {
+    const section = card.querySelector('.dl-progress-section');
+    const row = section && section.querySelector('.dl-progress-row');
+    if (row) {
+      bytesEl = document.createElement('div');
+      bytesEl.className = 'dl-progress-bytes';
+      row.insertAdjacentElement('afterend', bytesEl);
+    }
+  }
+  if (bytesEl) {
+    bytesEl.textContent = formatProgressBytesLine(d);
+  }
+
+  const progress = Number(d.progress) || 0;
+  fill.style.width = progress + '%';
+  const showTransferStats = d.status === 'downloading';
+  metaEta.textContent = showTransferStats && d.eta ? ('ETA ' + d.eta) : '';
+  metaSpd.textContent = showTransferStats ? (d.speed || '') : '';
+  pctNear.textContent = progress.toFixed(1) + '%';
+
+  const badge = card.querySelector('.dl-status');
+  if (badge && d.status) {
+    badge.className = 'dl-status ' + d.status;
+    badge.textContent = String(d.status).replace(/_/g, ' ');
+  }
+
+  const titleEl = card.querySelector('.dl-title');
+  if (titleEl) {
+    const title = d.title || d.url || 'Unknown';
+    titleEl.textContent = title;
+    titleEl.setAttribute('title', d.title || d.url || '');
+  }
+
+  return true;
+}
+
+function patchLiveDownloadCard(card, d) {
+  const liveSpd = card.querySelector('.dl-live-speed');
+  const liveBytes = card.querySelector('.dl-live-bytes');
+  if (!liveSpd || !liveBytes) return false;
+
+  liveSpd.textContent = d.speed || '';
+  liveBytes.textContent = d.downloaded_bytes ? formatBytes(d.downloaded_bytes) : '';
+
+  const badge = card.querySelector('.dl-status');
+  if (badge && d.status) {
+    badge.className = 'dl-status ' + d.status;
+    badge.textContent = String(d.status).replace(/_/g, ' ');
+  }
+
+  const titleEl = card.querySelector('.dl-title');
+  if (titleEl) {
+    const title = d.title || d.url || 'Unknown';
+    titleEl.textContent = title;
+    titleEl.setAttribute('title', d.title || d.url || '');
+  }
+
+  return true;
+}
+
+// ===================================================================
 // Render downloads
 // ===================================================================
 function renderDownloads() {
@@ -2407,6 +2620,7 @@ function renderDownloads() {
 
     // Meta line
     let metaLine = '';
+    let metaLineWrapClass = 'dl-meta-line';
     if (isCompleted) {
       const parts = [];
       if (d.quality_label) parts.push(d.quality_label);
@@ -2414,16 +2628,23 @@ function renderDownloads() {
       if (d.duration) parts.push(formatDuration(d.duration));
       metaLine = parts.join(' &middot; ');
     } else if (isActive && !isLive) {
-      const parts = [];
-      if (d.speed) parts.push(d.speed);
-      if (d.eta) parts.push('ETA ' + d.eta);
-      metaLine = parts.join(' &middot; ');
+      metaLineWrapClass = 'dl-meta-line dl-meta-active-row';
+      const showTransferStats = d.status === 'downloading';
+      const etaTxt = showTransferStats && d.eta ? ('ETA ' + escapeHtml(d.eta)) : '';
+      const spdTxt = showTransferStats && d.speed ? escapeHtml(d.speed) : '';
+      metaLine = '<span class="dl-meta-active-stats">' +
+        '<span class="dl-meta-eta">' + etaTxt + '</span>' +
+        '<span class="dl-meta-spd">' + spdTxt + '</span>' +
+        '</span>';
     }
 
     // Badges
     let badges = '';
     if (isLive) {
       badges += '<span class="live-badge"><span class="live-dot"></span>LIVE</span>';
+    }
+    if (d.quality_label && !isCompleted) {
+      badges += '<span class="category-badge">' + escapeHtml(d.quality_label) + '</span>';
     }
     if (isCompleted) {
       const catLabel = (d.category_id && catMap[d.category_id]) ? escapeHtml(catMap[d.category_id]) : 'Uncategorized';
@@ -2443,13 +2664,13 @@ function renderDownloads() {
     // Progress section (only for active non-live)
     let progressSection = '';
     if (isActive && !isLive) {
+      const bytesLine = formatProgressBytesLine(d);
       progressSection = '<div class="dl-progress-section">' +
-        '<div class="dl-progress-bar"><div class="dl-progress-fill" style="width:' + progress + '%"></div></div>' +
-        '<div class="dl-progress-info">' +
-          '<span>' + (d.speed || '') + '</span>' +
-          '<span>' + progress.toFixed(1) + '%</span>' +
-          '<span>' + (d.eta ? 'ETA ' + d.eta : '') + '</span>' +
+        '<div class="dl-progress-row">' +
+          '<div class="dl-progress-bar"><div class="dl-progress-fill" style="width:' + progress + '%"></div></div>' +
+          '<span class="dl-progress-pct-nearbar">' + progress.toFixed(1) + '%</span>' +
         '</div>' +
+        '<div class="dl-progress-bytes">' + escapeHtml(bytesLine) + '</div>' +
       '</div>';
     }
 
@@ -2459,9 +2680,9 @@ function renderDownloads() {
       const startMs = d.created_at ? new Date(d.created_at).getTime() : Date.now();
       const elapsed = Math.floor((Date.now() - startMs) / 1000);
       liveSection = '<div class="dl-live-info">' +
-        (d.speed ? '<span>' + escapeHtml(d.speed) + '</span>' : '') +
-        (d.downloaded_bytes ? '<span>' + formatBytes(d.downloaded_bytes) + '</span>' : '') +
-        '<span class="live-elapsed" data-start="' + startMs + '">' + formatElapsed(elapsed) + '</span>' +
+        '<span class="dl-live-speed">' + (d.speed ? escapeHtml(d.speed) : '') + '</span>' +
+        '<span class="dl-live-bytes">' + (d.downloaded_bytes ? formatBytes(d.downloaded_bytes) : '') + '</span>' +
+        '<span class="live-elapsed dl-live-elapsed" data-start="' + startMs + '">' + formatElapsed(elapsed) + '</span>' +
       '</div>';
     }
 
@@ -2535,7 +2756,7 @@ function renderDownloads() {
         thumbHtml +
         '<div class="dl-body">' +
           '<div class="dl-title" title="' + escapeAttr(title) + '">' + escapeHtml(title) + '</div>' +
-          (metaLine ? '<div class="dl-meta-line">' + metaLine + '</div>' : '') +
+          (metaLine ? '<div class="' + metaLineWrapClass + '">' + metaLine + '</div>' : '') +
           '<div class="dl-badges">' + badges + '</div>' +
         '</div>' +
         shareAside +
@@ -3478,6 +3699,23 @@ function formatBytes(bytes) {
   let i = 0, val = bytes;
   while (val >= 1024 && i < units.length - 1) { val /= 1024; i++; }
   return val.toFixed(i > 0 ? 1 : 0) + ' ' + units[i];
+}
+
+function formatProgressBytesLine(d) {
+  const dl = d.downloaded_bytes;
+  const total = d.filesize;
+  const hasDl = dl != null && dl > 0;
+  const hasTotal = total != null && total > 0;
+  if (hasDl && hasTotal) {
+    return formatBytes(dl) + ' / ' + formatBytes(total);
+  }
+  if (hasTotal) {
+    return '~' + formatBytes(total) + ' total';
+  }
+  if (hasDl) {
+    return formatBytes(dl) + ' downloaded';
+  }
+  return '';
 }
 
 function escapeHtml(str) {

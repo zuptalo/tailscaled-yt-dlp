@@ -11,6 +11,8 @@ class FormatInfo(BaseModel):
     abr: float | None = None
     filesize: int | None = None
     filesize_approx: int | None = None
+    # Video-only DASH rows: approximate final size after yt-dlp adds default audio (same as download)
+    estimated_total_bytes: int | None = None
     quality_label: str | None = None
     has_video: bool = False
     has_audio: bool = False
@@ -26,6 +28,7 @@ class VideoInfo(BaseModel):
 class DownloadRequest(BaseModel):
     url: str
     format_id: str | None = None
+    quality_label: str | None = None
     category_id: str | None = None
     exit_node: str | None = None
 

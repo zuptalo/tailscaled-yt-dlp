@@ -1,3 +1,5 @@
+from datetime import datetime, timezone
+
 import aiosqlite
 from app.config import DB_PATH
 
@@ -136,6 +138,29 @@ async def list_downloads() -> list[dict]:
         cursor = await db.execute("SELECT * FROM downloads ORDER BY created_at DESC")
         rows = await cursor.fetchall()
         return [dict(r) for r in rows]
+    finally:
+        await db.close()
+
+
+async def mark_interrupted_active_downloads() -> int:
+    """Mark non-terminal jobs as failed after process restart (workers are gone).
+
+    UI shows Retry for failed downloads instead of a no-op Cancel on ghost in-progress rows.
+    """
+    now = datetime.now(timezone.utc).isoformat()
+    msg = "Interrupted when the server restarted. Use Retry to resume."
+    db = await get_db()
+    try:
+        await db.execute(
+            """UPDATE downloads SET status = 'failed', error_message = ?, updated_at = ?,
+                   is_live = 0
+               WHERE status IN ('queued', 'fetching_info', 'downloading', 'post_processing')""",
+            [msg, now],
+        )
+        await db.commit()
+        cur = await db.execute("SELECT changes()")
+        row = await cur.fetchone()
+        return int(row[0]) if row and row[0] is not None else 0
     finally:
         await db.close()
 

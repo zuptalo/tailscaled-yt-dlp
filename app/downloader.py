@@ -29,6 +29,11 @@ from app.vpn import has_active_exit_node_sync, set_exit_node_sync
 logger = logging.getLogger(__name__)
 
 
+def _normalized_exit_override(exit_node: str | None) -> str | None:
+    s = (exit_node or "").strip()
+    return s or None
+
+
 def _get_ffmpeg_path() -> str | None:
     """Get ffmpeg path - prefer system ffmpeg, fall back to imageio-ffmpeg bundle."""
     # Check if system ffmpeg is available
@@ -70,6 +75,58 @@ def _build_quality_label(f: dict) -> str:
     return f.get("format_note", f.get("format_id", "unknown"))
 
 
+def _approx_stream_bytes(f: dict | None, duration_sec: float | None) -> int | None:
+    """Bytes for one stream: prefer metadata; else duration * bitrate from yt-dlp format fields."""
+    if not f:
+        return None
+    for key in ("filesize", "filesize_approx"):
+        v = f.get(key)
+        if v:
+            try:
+                return int(v)
+            except (TypeError, ValueError):
+                pass
+    if not duration_sec or duration_sec <= 0:
+        return None
+    try:
+        tbr = f.get("tbr")
+        if tbr is not None and float(tbr) > 0:
+            return int(float(tbr) * 1000 * duration_sec / 8)
+    except (TypeError, ValueError):
+        pass
+    try:
+        kbps = 0.0
+        vbr = f.get("vbr")
+        abr = f.get("abr")
+        if vbr is not None:
+            kbps += float(vbr)
+        if abr is not None:
+            kbps += float(abr)
+        if kbps > 0:
+            return int(kbps * 1000 * duration_sec / 8)
+    except (TypeError, ValueError):
+        pass
+    return None
+
+
+def _estimated_merged_size_bytes(formats: list[dict], video_row: dict, duration_sec: float | None) -> int | None:
+    """Final file size estimate for a row we would download as video + default audio (video-only DASH)."""
+    v = _approx_stream_bytes(video_row, duration_sec)
+    if v is None:
+        return None
+    has_video = video_row.get("vcodec", "none") not in ("none", None)
+    has_audio = video_row.get("acodec", "none") not in ("none", None)
+    if not has_video or has_audio:
+        return v
+    audio = _find_best_audio(formats)
+    if not audio:
+        return v
+    a = _approx_stream_bytes(audio, duration_sec)
+    if a:
+        return v + a
+    return v
+
+
 def _find_best_audio(formats: list[dict], max_abr: float = 128.0) -> dict | None:
     audio_fmts = [
         f for f in formats
@@ -94,6 +151,98 @@ _ANSI_RE = re.compile(r'\x1b\[[0-9;]*m')
 
 def _strip_ansi(s: str) -> str:
     return _ANSI_RE.sub('', s)
+
+
+def _format_speed_bps(speed: float) -> str:
+    """Format yt-dlp numeric speed (bytes/s) like yt-dlp's MiB/s strings."""
+    if speed <= 0:
+        return ""
+    s = float(speed)
+    for label, div in (("GiB/s", 1073741824), ("MiB/s", 1048576), ("KiB/s", 1024)):
+        if s >= div:
+            return f"{s / div:.2f}{label}"
+    return f"{int(s)}B/s"
+
+
+def _format_eta_seconds(eta: float) -> str:
+    if eta < 0:
+        return ""
+    sec = int(eta)
+    m, s = divmod(sec, 60)
+    h, m = divmod(m, 60)
+    if h:
+        return f"{h:d}:{m:02d}:{s:02d}"
+    return f"{m:d}:{s:02d}"
+
+
+def _format_row_matches_id(f: dict, format_id: str | None) -> bool:
+    if not format_id:
+        return False
+    fid = f.get("format_id")
+    if fid is None:
+        return False
+    return str(fid).strip() == str(format_id).strip()
+
+
+def _merge_format_ids(format_str: str | None) -> list[str]:
+    if not format_str:
+        return []
+    head = format_str.split("/")[0].strip()
+    return [p.strip() for p in head.split("+") if p.strip()]
+
+
+def _initial_filesize_estimate(info: dict, format_id: str | None, format_str: str | None) -> int | None:
+    """Best-effort total size from metadata before per-fragment hooks run.
+
+    YouTube (and similar) often set top-level info['filesize_approx'] to a rough maximum across
+    *all* formats, not the chosen stream — so never prefer that when the user picked a format.
+
+    Video-only selections are downloaded with a separate audio stream; include that size (metadata
+    or bitrate*duration) so the estimate matches the final merged file.
+    """
+    formats = info.get("formats") or []
+    duration = info.get("duration")
+    fid = str(format_id).strip() if format_id else None
+    want_specific = bool(fid or (format_str and str(format_str).strip()))
+
+    parts = _merge_format_ids(format_str)
+    if len(parts) > 1:
+        by_id = {str(f.get("format_id")): f for f in formats if f.get("format_id") is not None}
+        total = 0
+        found_any = False
+        for pid in parts:
+            row = by_id.get(pid)
+            b = _approx_stream_bytes(row, duration)
+            if b:
+                total += b
+                found_any = True
+        if found_any and total > 0:
+            return total
+
+    target_id = fid
+    if not target_id and len(parts) == 1:
+        target_id = parts[0]
+
+    if target_id:
+        selected = next((f for f in formats if _format_row_matches_id(f, target_id)), None)
+        if selected:
+            merged = _estimated_merged_size_bytes(formats, selected, duration)
+            if merged:
+                return merged
+        if want_specific:
+            return None
+
+    if want_specific:
+        return None
+
+    for key in ("filesize", "filesize_approx"):
+        v = info.get(key)
+        if v:
+            try:
+                return int(v)
+            except (TypeError, ValueError):
+                pass
+    return None
 
 
 def _next_vid_number() -> int:
@@ -140,12 +289,8 @@ def _base_yt_dlp_opts() -> dict:
         "writethumbnail": False,  # We cache thumbnails separately
         # Prefer H.264 formats for iOS compatibility
         "format_sort": ["vcodec:h264", "acodec:aac"],
-        # YouTube extractor args - use mweb (mobile web) client which often works without PO tokens
-        "extractor_args": {
-            "youtube": {
-                "player_client": ["mweb", "tv"],
-            }
-        },
+        # Do not force youtube player_client (e.g. mweb/tv): without PO tokens yt-dlp skips
+        # most https formats and the UI can show a single low-res option only.
     }
     _merge_proxy(opts)
     if _cookies_file_valid():
@@ -166,7 +311,7 @@ class DownloadManager:
         self._lock = threading.Lock()
         self._cancelled: set[str] = set()
         self._active_ydl: dict[str, object] = {}
-        # Tailscale allows one exit at a time; serialize VPN download work
+        # Serialize tailscale set --exit-node only (brief); yt-dlp may run concurrently
         self._vpn_run_lock = threading.Lock()
 
     def _is_cancelled(self, download_id: str) -> bool:
@@ -215,13 +360,13 @@ class DownloadManager:
         """
         if not config_use_vpn():
             return
-        if exit_node_override:
-            set_exit_node_sync(exit_node_override)
+        ov = _normalized_exit_override(exit_node_override)
+        if not ov:
+            return
+        with self._vpn_run_lock:
+            set_exit_node_sync(ov)
 
     def fetch_formats(self, url: str, exit_node: str | None = None) -> VideoInfo:
-        if config_use_vpn():
-            with self._vpn_run_lock:
-                return self._fetch_formats_inner(url, exit_node)
         return self._fetch_formats_inner(url, exit_node)
 
     def _fetch_formats_inner(self, url: str, exit_node: str | None = None) -> VideoInfo:
@@ -239,12 +384,20 @@ class DownloadManager:
         with yt_dlp.YoutubeDL(opts) as ydl:
             info = ydl.extract_info(url, download=False)
 
+        raw_formats = info.get("formats", [])
+        duration = info.get("duration")
         formats = []
-        for f in info.get("formats", []):
+        for f in raw_formats:
             has_video = f.get("vcodec", "none") not in ("none", None)
             has_audio = f.get("acodec", "none") not in ("none", None)
+            _fid = f.get("format_id")
+            # Do not use `or ""` — numeric id 0 is valid; falsy or would drop it and collapse the UI list
+            format_id_str = "" if _fid is None else str(_fid)
+            est_total = None
+            if has_video and not has_audio:
+                est_total = _estimated_merged_size_bytes(raw_formats, f, duration)
             formats.append(FormatInfo(
-                format_id=f.get("format_id", ""),
+                format_id=format_id_str,
                 ext=f.get("ext", ""),
                 resolution=f.get("resolution"),
                 fps=f.get("fps"),
@@ -253,6 +406,7 @@ class DownloadManager:
                 abr=f.get("abr"),
                 filesize=f.get("filesize"),
                 filesize_approx=f.get("filesize_approx"),
+                estimated_total_bytes=est_total,
                 quality_label=_build_quality_label(f),
                 has_video=has_video,
                 has_audio=has_audio,
@@ -271,9 +425,12 @@ class DownloadManager:
         format_id: str | None = None,
         category_id: str | None = None,
         exit_node: str | None = None,
+        quality_label: str | None = None,
     ) -> str:
         download_id = str(uuid.uuid4())
         now = datetime.now(timezone.utc).isoformat()
+        ql = (quality_label or "").strip() or None
+        fid = str(format_id).strip() if format_id else None
 
         await insert_download({
             "id": download_id,
@@ -286,8 +443,8 @@ class DownloadManager:
             "filesize": None,
             "downloaded_bytes": None,
             "filename": None,
-            "format_id": format_id,
-            "quality_label": None,
+            "format_id": fid,
+            "quality_label": ql,
             "error_message": None,
             "thumbnail_url": None,
             "created_at": now,
@@ -298,14 +455,17 @@ class DownloadManager:
             "exit_node": exit_node,
         })
 
-        self._emit("download_queued", {"id": download_id, "url": url, "status": "queued"})
-        self._pool.submit(self._run_download, download_id, url, format_id)
+        self._emit("download_queued", {
+            "id": download_id,
+            "url": url,
+            "status": "queued",
+            "quality_label": ql,
+            "format_id": fid,
+        })
+        self._pool.submit(self._run_download, download_id, url, fid)
         return download_id
 
     def _run_download(self, download_id: str, url: str, format_id: str | None):
-        use_vpn = config_use_vpn()
-        if use_vpn:
-            self._vpn_run_lock.acquire()
         try:
             if self._is_cancelled(download_id):
                 return
@@ -341,8 +501,6 @@ class DownloadManager:
                 "status": "failed",
             })
         finally:
-            if use_vpn:
-                self._vpn_run_lock.release()
             with self._lock:
                 self._cancelled.discard(download_id)
             self._unregister_ydl(download_id)
@@ -397,7 +555,7 @@ class DownloadManager:
         quality_label = None
         if format_id:
             all_formats = info.get("formats", [])
-            selected = next((f for f in all_formats if f.get("format_id") == format_id), None)
+            selected = next((f for f in all_formats if _format_row_matches_id(f, format_id)), None)
             if selected:
                 has_video = selected.get("vcodec", "none") not in ("none", None)
                 has_audio = selected.get("acodec", "none") not in ("none", None)
@@ -406,13 +564,24 @@ class DownloadManager:
                 if has_video and not has_audio:
                     audio = _find_best_audio(all_formats)
                     if audio:
-                        format_str = f"{format_id}+{audio['format_id']}"
+                        format_str = f"{format_id}+{str(audio.get('format_id'))}"
                     else:
                         format_str = format_id
                 else:
                     format_str = format_id
+            else:
+                logger.warning(
+                    "No format matching id %r for download %s; falling back to default format",
+                    format_id,
+                    download_id,
+                )
 
         duration = info.get("duration")
+        size_est = _initial_filesize_estimate(info, format_id, format_str)
+
+        row_pre = self._sync_get(download_id) or {}
+        if not quality_label:
+            quality_label = row_pre.get("quality_label")
 
         update_fields = {
             "title": title,
@@ -425,75 +594,171 @@ class DownloadManager:
         }
         if is_live:
             update_fields["is_live"] = 1
+        if size_est:
+            update_fields["filesize"] = size_est
 
         self._sync_update(download_id, update_fields)
 
-        self._emit("download_progress", {
+        emit_start = {
             "id": download_id,
             "title": title,
             "thumbnail_url": thumbnail_url,
             "progress": 0.0,
             "status": "downloading",
             "is_live": is_live,
-        })
+        }
+        if size_est:
+            emit_start["filesize"] = size_est
+        self._emit("download_progress", emit_start)
 
         if is_live:
             self._do_live_download(download_id, url, title, format_str, thumbnail_url)
         else:
-            self._do_regular_download(download_id, url, title, format_str, thumbnail_url)
+            self._do_regular_download(
+                download_id, url, title, format_str, thumbnail_url, initial_filesize=size_est,
+            )
 
-    def _do_regular_download(self, download_id: str, url: str, title: str, format_str: str | None, thumbnail_url: str | None):
+    def _do_regular_download(
+        self,
+        download_id: str,
+        url: str,
+        title: str,
+        format_str: str | None,
+        thumbnail_url: str | None,
+        initial_filesize: int | None = None,
+    ):
         now_iso = lambda: datetime.now(timezone.utc).isoformat()
 
         # Use download_id (UUID) as filename
         output_filename = f"{download_id}.%(ext)s"
+
+        # yt-dlp often reports no total during fragments/merges; avoid wiping DB/UI with nulls.
+        best_total: list[int | None] = [initial_filesize]
+        peak_progress: list[float] = [0.0]
+        ema_bps: list[float | None] = [None]
+        ema_eta: list[float | None] = [None]
+        # Video+audio (DASH): yt-dlp downloads streams sequentially and resets counters between
+        # them — accumulate so the bar does not snap back to 0 and totals stay coherent.
+        cum_bytes: list[int] = [0]
+        phase_peak: list[int] = [0]
+        last_raw_dl: list[int] = [0]
 
         # Progress hook
         def progress_hook(d):
             if self._is_cancelled(download_id):
                 raise DownloadError("Cancelled")
             if d.get("status") == "downloading":
-                total = d.get("total_bytes") or d.get("total_bytes_estimate")
-                downloaded = d.get("downloaded_bytes", 0)
-                progress = (downloaded / total * 100) if total else 0.0
-                speed = _strip_ansi(d.get("_speed_str", "")).strip()
-                eta = _strip_ansi(d.get("_eta_str", "")).strip()
+                raw_dl = int(d.get("downloaded_bytes") or 0)
+                raw_total = d.get("total_bytes") or d.get("total_bytes_estimate")
 
-                self._sync_update(download_id, {
-                    "progress": round(progress, 1),
-                    "speed": speed or None,
-                    "eta": eta or None,
-                    "filesize": total,
+                prev_dl = last_raw_dl[0]
+                if prev_dl > 256 * 1024 and raw_dl < prev_dl // 3:
+                    cum_bytes[0] += phase_peak[0]
+                    phase_peak[0] = 0
+
+                last_raw_dl[0] = raw_dl
+                phase_peak[0] = max(phase_peak[0], raw_dl)
+                downloaded = cum_bytes[0] + raw_dl
+
+                if raw_total:
+                    try:
+                        rt = int(raw_total)
+                        bt = best_total[0]
+                        phase_dl = raw_dl
+                        combined_ceil = cum_bytes[0] + rt
+                        if bt is None or bt <= 0:
+                            best_total[0] = combined_ceil
+                        elif combined_ceil > bt:
+                            best_total[0] = combined_ceil
+                        elif (
+                            cum_bytes[0] == 0
+                            and bt > max(rt, phase_dl, 1) * 4
+                            and phase_dl > 0
+                            and rt > 0
+                            and phase_dl >= rt * 0.88
+                        ):
+                            # Inflated metadata (e.g. wrong top-level approx); trust hook + bytes
+                            best_total[0] = max(rt, phase_dl, downloaded)
+                        else:
+                            best_total[0] = max(bt, combined_ceil)
+                    except (TypeError, ValueError):
+                        pass
+                total = best_total[0]
+
+                if total and total > 0:
+                    pct = min(99.9, 100.0 * downloaded / total)
+                    peak_progress[0] = max(peak_progress[0], pct)
+                else:
+                    pct = peak_progress[0]
+
+                bps = d.get("speed")
+                if bps is not None:
+                    try:
+                        bf = float(bps)
+                        if bf > 0:
+                            prev = ema_bps[0]
+                            ema_bps[0] = bf if prev is None else (0.28 * bf + 0.72 * prev)
+                    except (TypeError, ValueError):
+                        pass
+                speed = _format_speed_bps(ema_bps[0]) if ema_bps[0] else ""
+                if not speed:
+                    speed = _strip_ansi(d.get("_speed_str", "")).strip()
+
+                eta_sec = d.get("eta")
+                eta = ""
+                if eta_sec is not None:
+                    try:
+                        es = float(eta_sec)
+                        if es >= 0:
+                            prev_e = ema_eta[0]
+                            ema_eta[0] = es if prev_e is None else (0.22 * es + 0.78 * prev_e)
+                            eta = _format_eta_seconds(ema_eta[0])
+                    except (TypeError, ValueError):
+                        pass
+                if not eta:
+                    eta = _strip_ansi(d.get("_eta_str", "")).strip()
+
+                fields: dict = {
+                    "progress": round(pct, 1),
                     "downloaded_bytes": downloaded,
                     "status": "downloading",
                     "updated_at": now_iso(),
-                })
-                self._emit("download_progress", {
-                    "id": download_id,
-                    "progress": round(progress, 1),
-                    "speed": speed or None,
-                    "eta": eta or None,
-                    "filesize": total,
-                    "downloaded_bytes": downloaded,
-                    "status": "downloading",
-                })
-            elif d.get("status") == "finished":
-                self._sync_update(download_id, {
-                    "progress": 100.0,
-                    "status": "post_processing",
-                    "updated_at": now_iso(),
-                })
-                self._emit("download_progress", {
-                    "id": download_id,
-                    "progress": 100.0,
-                    "status": "post_processing",
-                })
+                }
+                if speed:
+                    fields["speed"] = speed
+                if eta:
+                    fields["eta"] = eta
+                if total is not None and total > 0:
+                    fields["filesize"] = total
+
+                self._sync_update(download_id, fields)
+                ev = {"id": download_id, **{k: v for k, v in fields.items() if k != "updated_at"}}
+                self._emit("download_progress", ev)
+            # Ignore per-stream "finished" from yt-dlp (video then audio); it is not job done.
 
         # Postprocessor hook
         def postprocessor_hook(d):
             if self._is_cancelled(download_id):
                 raise DownloadError("Cancelled")
-            if d.get("status") == "finished":
+            st = d.get("status")
+            pp = d.get("postprocessor") or ""
+            if st == "started" and pp == "Merger":
+                merge_pct = min(99.5, max(peak_progress[0], 99.0))
+                self._sync_update(download_id, {
+                    "status": "post_processing",
+                    "progress": merge_pct,
+                    "speed": None,
+                    "eta": None,
+                    "updated_at": now_iso(),
+                })
+                self._emit("download_progress", {
+                    "id": download_id,
+                    "status": "post_processing",
+                    "progress": merge_pct,
+                    "speed": None,
+                    "eta": None,
+                })
+            if st == "finished":
                 filepath = d.get("info_dict", {}).get("filepath")
                 if filepath:
                     self._sync_update(download_id, {
@@ -507,8 +772,9 @@ class DownloadManager:
         dl_opts["progress_hooks"] = [progress_hook]
         dl_opts["postprocessor_hooks"] = [postprocessor_hook]
         if format_str:
-            # Use format with fallback to best available
-            dl_opts["format"] = f"{format_str}/bestvideo+bestaudio/best"
+            # Exact selection only — `/bestvideo+bestaudio` was upgrading every job to the same "best" stream
+            dl_opts["format"] = format_str
+            dl_opts.pop("format_sort", None)
         else:
             dl_opts["format"] = "bestvideo+bestaudio/best"
 
@@ -587,6 +853,7 @@ class DownloadManager:
         cmd = ["yt-dlp", "--newline", "--no-colors", "-o", output_path]
         cmd.extend(["--user-agent", USER_AGENT])
         cmd.extend(["--merge-output-format", "mp4"])
+        cmd.extend(["--extractor-args", "youtube:player_client=mweb,tv"])
         proxy = _vpn_proxy_url()
         if proxy:
             cmd.extend(["--proxy", proxy])

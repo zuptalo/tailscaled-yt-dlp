@@ -39,6 +39,7 @@ from app.database import (
     get_share_link as db_get_share_link,
     get_share_link_by_token,
     init_db,
+    mark_interrupted_active_downloads,
     insert_category as db_insert_category,
     insert_share_link as db_insert_share_link,
     list_categories as db_list_categories,
@@ -147,6 +148,12 @@ async def _precache_thumbnails():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await init_db()
+    n_stale = await mark_interrupted_active_downloads()
+    if n_stale:
+        logger.info(
+            "Marked %d download(s) as failed after restart (use Retry in the UI to resume).",
+            n_stale,
+        )
     loop = asyncio.get_running_loop()
     download_manager.set_event_loop(loop)
     download_manager.set_broadcast(broadcast)
@@ -368,7 +375,11 @@ async def proxy_thumbnail(url: str):
 @app.post("/api/downloads", dependencies=[Depends(require_auth)])
 async def create_download(req: DownloadRequest):
     download_id = await download_manager.start_download(
-        req.url, req.format_id, req.category_id, req.exit_node,
+        req.url,
+        req.format_id,
+        req.category_id,
+        req.exit_node,
+        req.quality_label,
     )
     return {"id": download_id, "status": "queued"}
 
@@ -428,7 +439,11 @@ async def retry_download(download_id: str):
     await delete_share_links_for_download(download_id)
     await delete_download(download_id)
     new_id = await download_manager.start_download(
-        row["url"], row.get("format_id"), row.get("category_id"), row.get("exit_node"),
+        row["url"],
+        row.get("format_id"),
+        row.get("category_id"),
+        row.get("exit_node"),
+        row.get("quality_label"),
     )
     return {"id": new_id, "status": "queued"}
 
